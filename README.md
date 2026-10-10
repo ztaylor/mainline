@@ -7,6 +7,10 @@
 
 # mainline
 
+[![CI](https://github.com/ztaylor/mainline/actions/workflows/ci.yml/badge.svg)](https://github.com/ztaylor/mainline/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ztaylor/mainline)](https://github.com/ztaylor/mainline/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Take an iOS app from idea to TestFlight without opening Xcode.
 
 mainline creates, builds, tests, screenshots, signs and uploads SwiftUI apps from the terminal. It is designed for
