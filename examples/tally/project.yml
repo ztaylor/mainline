@@ -1,0 +1,90 @@
+# XcodeGen spec. The .xcodeproj is GENERATED from this file by `mainline gen`;
+# never edit the .xcodeproj directly (it is git-ignored).
+#
+# ${VARIABLES} are expanded from app.env and your mainline settings at generation time.
+# Spec reference: https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md
+
+name: Tally
+
+options:
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "${MARKETING_VERSION}"
+    CURRENT_PROJECT_VERSION: "1"   # overridden with the real build number by `mainline ship`
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  Tally:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Resources
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: "${DISPLAY_NAME}"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Answers the TestFlight export-compliance question automatically.
+        # Only true if the app uses encryption beyond Apple's OS-provided HTTPS/TLS.
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "${BUNDLE_ID}"
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only; "1,2" adds iPad (and iPad screenshots for review)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: YES
+
+  TallyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: Tally
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "${BUNDLE_ID}.tests"
+        GENERATE_INFOPLIST_FILE: YES
+
+  TallyUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: Tally
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "${BUNDLE_ID}.uitests"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Tally
+
+schemes:
+  Tally:
+    build:
+      targets:
+        Tally: all
+    test:
+      config: Debug
+      targets:
+        - TallyTests
+        - TallyUITests
+    run:
+      config: Debug
+    archive:
+      config: Release

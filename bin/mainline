@@ -1,0 +1,660 @@
+#!/usr/bin/env bash
+# mainline: idea → TestFlight for iOS apps, from the command line.
+# Run `mainline help` for usage. Docs: https://github.com/ztaylor/mainline
+
+set -euo pipefail
+_self="${BASH_SOURCE[0]}"
+while [ -h "$_self" ]; do
+  _dir="$(cd -P "$(dirname "$_self")" && pwd)"; _self="$(readlink "$_self")"
+  case "$_self" in /*) ;; *) _self="$_dir/$_self" ;; esac
+done
+# shellcheck disable=SC1091
+. "$(cd -P "$(dirname "$_self")/.." && pwd)/lib/common.sh"
+
+MAINLINE_VERSION="0.1.0"
+
+usage() {
+  cat <<'EOF'
+usage: mainline <command> [args]
+
+<app> is an app folder (one with app.env): a path, a name under ./ or ./apps/, or nothing for
+the current folder. `mainline test tally` finds the example app that ships with mainline.
+
+Set up
+  setup [--team ID] [--prefix com.you] [--tester EMAIL] [--key AuthKey_X.p8] [--key-id X] [--issuer UUID]
+                                Save your account settings and API key to ~/.mainline (asks when run bare)
+  doctor                        Check the toolchain, settings and App Store Connect credentials
+  init [dir]                    Make a workspace for your apps (apps/, .gitignore, AGENTS.md for agents)
+  new <slug> [--name "Name"] [--symbol sf.symbol] [--from #hex] [--to #hex] [--dir DIR]
+                                Create an app from the template (in ./apps/ when it exists)
+  list                          List apps here and in ./apps
+  guide                         Print the playbook for AI agents (what to do, in order, and what to avoid)
+
+Develop (simulator; no Apple account needed)
+  gen <app>                     Regenerate the Xcode project from project.yml
+  icon <app>                    Render the app icon from app.env (ICON_*)
+  build <app>                   Build for the simulator
+  test <app> [--unit-only] [--only <Target/Class[/method]>]
+                                Run unit and UI tests on the simulator
+  run <app> [--wait N] [--dark] [--show] [--no-screenshot] [-- <launch args>]
+                                Install, launch and screenshot in the simulator
+  screenshots <app>             Export the screenshots that UI tests attached in the last test run
+
+Release (needs `mainline setup`)
+  register <app>                Register the bundle ID and check for the App Store Connect app record
+  ship <app> [--skip-tests] [--no-wait]
+                                Test, archive, sign, upload, set up TestFlight, wait for processing
+  status <app> [N]              The last N builds (default 10) and their TestFlight state
+  crashes <app> [N]             Download the last N (default 10) TestFlight crash reports and summarize each
+  asc <args>                    Call the App Store Connect helper directly (`mainline asc help`)
+
+Exit codes: 0 ok · 1 failure · 2 timed out · 3 not found · 10 app record missing (one web step) · 64 usage · 78 not set up
+EOF
+}
+
+# ------------------------------------------------------------------ setup
+# set_kv <file> <KEY> <value>: replace KEY=… in an env file, or append it.
+set_kv() {
+  local file="$1"
+  if grep -q "^$2=" "$file" 2>/dev/null; then
+    K="$2" V="$3" perl -pi -e 's/^\Q$ENV{K}\E=.*/$ENV{K}="$ENV{V}"/' "$file"
+  else
+    printf '%s="%s"\n' "$2" "$3" >>"$file"
+  fi
+}
+
+# ask <var> <question> <default>: prompt on the terminal, keeping the default on Enter.
+ask() {
+  local reply
+  if [ -n "$3" ]; then printf '  %s\n  [%s]: ' "$2" "$3" >&2; else printf '  %s\n  : ' "$2" >&2; fi
+  read -r reply </dev/tty || true
+  printf -v "$1" '%s' "${reply:-$3}"
+}
+
+cmd_setup() {
+  local team="" prefix="" testers="" key="" key_id="" issuer="" given=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --team) team="$2"; given=1; shift 2 ;;
+      --prefix) prefix="$2"; given=1; shift 2 ;;
+      --tester) testers="${testers:+$testers,}$2"; given=1; shift 2 ;;
+      --key) key="$2"; given=1; shift 2 ;;
+      --key-id) key_id="$2"; given=1; shift 2 ;;
+      --issuer) issuer="$2"; given=1; shift 2 ;;
+      *) die "unknown option $1" 64 ;;
+    esac
+  done
+  load_config
+  if [ "$given" = 0 ]; then
+    [ -t 0 ] || die "nothing to set. Pass options (see \`mainline help\`) or run it in a terminal to be asked" 64
+    step "Account settings (saved to $CONFIG_FILE). Press Enter to keep a value."
+    ask team "Apple Team ID: developer.apple.com/account → Membership details" "${DEVELOPMENT_TEAM:-}"
+    ask prefix "Bundle ID prefix, reverse DNS you control (e.g. com.yourname)" "${BUNDLE_PREFIX:-}"
+    ask testers "TestFlight testers: comma-separated emails of App Store Connect users (e.g. you)" "${TESTER_EMAILS:-}"
+    step "App Store Connect API key (docs/setup.md#b3-app-store-connect-api-key)"
+    ask key "Path to the downloaded key, AuthKey_XXXXXXXXXX.p8" "${ASC_KEY_PATH:-}"
+    local guessed_id; guessed_id="$(basename "${key:-}" | sed -n 's/^AuthKey_\(.*\)\.p8$/\1/p')"
+    ask key_id "Key ID" "${guessed_id:-${ASC_KEY_ID:-}}"
+    ask issuer "Issuer ID: the UUID above the keys table (leave empty for an Individual key)" "${ASC_ISSUER_ID:-}"
+  fi
+
+  mkdir -p "$MAINLINE_HOME"; chmod 700 "$MAINLINE_HOME"
+  if [ -n "$team$prefix$testers" ]; then
+    [ -z "$team" ] || [[ "$team" =~ ^[A-Z0-9]{10}$ ]] || die "a Team ID is 10 capital letters and digits, e.g. ABCDE12345" 64
+    [ -z "$prefix" ] || [[ "$prefix" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || die "the prefix should look like com.yourname" 64
+    # shellcheck disable=SC2016  # the backticks are literal
+    [ -f "$CONFIG_FILE" ] || printf '# Your mainline settings. Written by `mainline setup`; edit freely.\n' >"$CONFIG_FILE"
+    [ -z "$team" ] || set_kv "$CONFIG_FILE" DEVELOPMENT_TEAM "$team"
+    [ -z "$prefix" ] || set_kv "$CONFIG_FILE" BUNDLE_PREFIX "$prefix"
+    [ -z "$testers" ] || set_kv "$CONFIG_FILE" TESTER_EMAILS "$testers"
+    ok "saved $CONFIG_FILE"
+  fi
+  if [ -n "$key$key_id$issuer" ]; then
+    if [ -n "$key" ]; then
+      key="${key/#\~/$HOME}"
+      [ -f "$key" ] || die "no file at $key" 64
+      [ -n "$key_id" ] || key_id="$(basename "$key" | sed -n 's/^AuthKey_\(.*\)\.p8$/\1/p')"
+      if [ "$(cd "$(dirname "$key")" && pwd)" != "$MAINLINE_HOME" ]; then
+        cp "$key" "$MAINLINE_HOME/" && key="$MAINLINE_HOME/$(basename "$key")"
+        info "copied the key to $key. Delete the download once \`mainline doctor\` passes."
+      fi
+      chmod 600 "$key"
+    fi
+    [ -f "$CREDENTIALS_FILE" ] || printf '# App Store Connect API credentials for mainline. Never commit or share this file.\n' >"$CREDENTIALS_FILE"
+    chmod 600 "$CREDENTIALS_FILE"
+    [ -z "$key" ] || set_kv "$CREDENTIALS_FILE" ASC_KEY_PATH "$key"
+    [ -z "$key_id" ] || set_kv "$CREDENTIALS_FILE" ASC_KEY_ID "$key_id"
+    if [ "$given" = 0 ] || [ -n "$issuer" ]; then set_kv "$CREDENTIALS_FILE" ASC_ISSUER_ID "$issuer"; fi
+    ok "saved $CREDENTIALS_FILE"
+  fi
+  echo >&2
+  cmd_doctor || true
+}
+
+# ------------------------------------------------------------------ doctor
+cmd_doctor() {
+  load_config
+  local failed=0
+  check() { # check <description> <command...>
+    local what="$1"; shift
+    if "$@" >/dev/null 2>&1; then ok "$what"; else warn "$what"; failed=1; fi
+  }
+
+  step "Toolchain"
+  if xcodebuild -version >/dev/null 2>&1; then ok "$(xcodebuild -version | head -1) at $(xcode-select -p)"
+  else warn "Xcode not found. Install it from the App Store, then: sudo xcode-select -s /Applications/Xcode.app"; failed=1; fi
+  if xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then ok "Xcode first-launch components installed"
+  else warn "Xcode first-launch components missing. Run once: sudo xcodebuild -runFirstLaunch"; failed=1; fi
+  if xcrun -f metal >/dev/null 2>&1 && xcrun metal --version >/dev/null 2>&1; then ok "Metal toolchain installed (for .metal shaders)"
+  else warn "Metal toolchain missing (only apps with .metal shaders need it). Run: xcodebuild -downloadComponent MetalToolchain"; fi
+  check "xcodegen installed (brew install xcodegen)" command -v xcodegen
+  check "jq installed (brew install jq)" command -v jq
+  check "altool available" xcrun --find altool
+  if ensure_tools 2>/dev/null; then ok "helper tools built (asc, appicon)"; else warn "helper tools failed to build"; failed=1; fi
+  local udid
+  if udid="$(simulator_udid 2>/dev/null)"; then
+    ok "simulator: $(xcrun simctl list devices -j | jq -r --arg u "$udid" '.devices[][] | select(.udid==$u) | .name') ($udid)"
+  else warn "no iPhone simulator. Run: xcodebuild -downloadPlatform iOS"; failed=1; fi
+  if command -v mainline >/dev/null 2>&1; then ok "mainline is on your PATH"
+  else info "tip: put mainline on your PATH: ln -s \"$MAINLINE_ROOT/bin/mainline\" /usr/local/bin/mainline"; fi
+
+  step "Account settings ($CONFIG_FILE)"
+  if [ -n "${BUNDLE_PREFIX:-}" ]; then ok "BUNDLE_PREFIX=$BUNDLE_PREFIX"
+  else warn "BUNDLE_PREFIX not set (needed by \`new\`). Run: mainline setup --prefix com.yourname"; failed=1; fi
+  if [[ "${DEVELOPMENT_TEAM:-}" =~ ^[A-Z0-9]{10}$ ]]; then ok "DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM"
+  else warn "DEVELOPMENT_TEAM not set (needed to ship). Run: mainline setup --team <TEAM_ID>"; failed=1; fi
+  if [ -n "${TESTER_EMAILS:-}" ]; then ok "TestFlight testers: $TESTER_EMAILS"
+  else warn "no TestFlight testers: builds will upload, but nobody is invited. Run: mainline setup --tester you@example.com"; fi
+
+  step "App Store Connect API key ($CREDENTIALS_FILE)"
+  if [ ! -f "$CREDENTIALS_FILE" ]; then
+    warn "not set up yet. See docs/setup.md#b3-app-store-connect-api-key, then: mainline setup --key ~/Downloads/AuthKey_XXXXXXXXXX.p8 --issuer <UUID>"; failed=1
+  else
+    local perms; perms="$(stat -f '%Lp' "$CREDENTIALS_FILE")"
+    [ "$perms" = "600" ] || warn "credentials file permissions are $perms; run: chmod 600 $CREDENTIALS_FILE"
+    if [ -n "${ASC_KEY_ID:-}" ]; then ok "ASC_KEY_ID=$ASC_KEY_ID"; else warn "ASC_KEY_ID empty"; failed=1; fi
+    if [ -n "${ASC_ISSUER_ID:-}" ]; then ok "ASC_ISSUER_ID set (Team key)"; else warn "ASC_ISSUER_ID empty: treating it as an Individual key (Team keys are recommended)"; fi
+    if [ -f "${ASC_KEY_PATH:-/nonexistent}" ]; then ok "key file $ASC_KEY_PATH"; else warn "key file not found: ${ASC_KEY_PATH:-<unset>}"; failed=1; fi
+    if have_credentials; then
+      local log; log="$(mktemp -t mainline-doctor)"
+      if asc check >/dev/null 2>"$log"; then ok "App Store Connect API reachable, credentials valid"
+      else warn "API check failed: $(tail -3 "$log" | tr '\n' ' ')"; failed=1; fi
+      rm -f "$log"
+    fi
+  fi
+
+  echo >&2
+  if [ "$failed" = 0 ]; then ok "All checks passed. Ready to ship."; else warn "Some checks need attention (see above)."; fi
+  return "$failed"
+}
+
+# ------------------------------------------------------------------ init / new / list / guide
+cmd_init() {
+  local dir="${1:-.}"
+  mkdir -p "$dir/apps"
+  dir="$(cd "$dir" && pwd)"
+  step "Setting up a mainline workspace in $(rel "$dir")"
+  write_once() { # write_once <file> (content on stdin)
+    if [ -e "$dir/$1" ]; then cat >/dev/null; info "kept existing $1"; else cat >"$dir/$1"; ok "$1"; fi
+  }
+  write_once .gitignore <<'EOF'
+# mainline build output and generated Xcode projects
+build/
+*.xcodeproj/
+Generated/
+
+# Secrets live in ~/.mainline, never here
+*.p8
+credentials.env
+
+.DS_Store
+xcuserdata/
+EOF
+  write_once AGENTS.md <<'EOF'
+# Agent instructions
+
+This is a [mainline](https://github.com/ztaylor/mainline) workspace. Each folder in `apps/` is an iOS app that goes from idea to TestFlight with the `mainline` command.
+
+Before you build, change or ship an app, run `mainline guide` and follow it. It has the steps in order, the rules, what to ask the human, and the SwiftUI pitfalls to avoid. Run `mainline help` for every command.
+EOF
+  write_once CLAUDE.md <<'EOF'
+@AGENTS.md
+EOF
+  write_once README.md <<'EOF'
+# Apps
+
+iOS apps built and shipped with [mainline](https://github.com/ztaylor/mainline).
+
+```sh
+mainline new my-app --name "My App"   # creates apps/my-app
+mainline test my-app
+mainline ship my-app                  # → TestFlight
+```
+EOF
+  ok "workspace ready. Next: mainline new <slug> --name \"Name\""
+}
+
+cmd_new() {
+  local slug="${1:-}"; shift || true
+  [[ "$slug" =~ ^[a-z][a-z0-9-]*$ ]] || die "the slug must be lowercase letters, digits and hyphens, e.g. 'habit-streaks'" 64
+  local name="" symbol="app.fill" from="#4F46E5" to="#7C3AED" parent=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --symbol) symbol="$2"; shift 2 ;;
+      --from) from="$2"; shift 2 ;;
+      --to) to="$2"; shift 2 ;;
+      --dir) parent="$2"; shift 2 ;;
+      *) die "unknown option $1" 64 ;;
+    esac
+  done
+  load_config
+  [ -n "${BUNDLE_PREFIX:-}" ] || die "set your bundle ID prefix first: mainline setup --prefix com.yourname" 78
+  if [ -z "$parent" ]; then
+    if [ -d "$PWD/apps" ] || [ "$PWD" = "$MAINLINE_ROOT" ]; then parent="$PWD/apps"; else parent="$PWD"; fi
+  fi
+  mkdir -p "$parent"
+  [ -n "$name" ] || name="$(echo "$slug" | perl -pe 's/(^|-)(\w)/ \U$2/g; s/^ //')"
+  local app_name; app_name="$(echo "$name" | perl -pe 's/[^A-Za-z0-9]//g; s/^(\d)/App$1/')"
+  [ -n "$app_name" ] || die "could not make a Swift identifier from the name '$name'" 64
+  local dest; dest="$(cd "$parent" && pwd)/$slug"
+  [ ! -e "$dest" ] || die "$(rel "$dest") already exists" 64
+
+  step "Creating $(rel "$dest") ($name, $BUNDLE_PREFIX.$slug)"
+  cp -R "$MAINLINE_ROOT/templates/app" "$dest"
+  # Rename files and folders containing the placeholder (deepest first).
+  find "$dest" -depth -name '*__APP_NAME__*' | while read -r path; do
+    mv "$path" "$(dirname "$path")/$(basename "$path" | sed "s/__APP_NAME__/$app_name/g")"
+  done
+  # Substitute placeholders through env vars so names with special characters are safe.
+  T_APP_NAME="$app_name" T_DISPLAY_NAME="$name" T_SLUG="$slug" T_BUNDLE_ID="$BUNDLE_PREFIX.$slug" \
+  T_SYMBOL="$symbol" T_FROM="$from" T_TO="$to" \
+    find "$dest" -type f \( -name '*.swift' -o -name '*.yml' -o -name '*.env' -o -name '*.md' -o -name '*.json' \) \
+    -exec perl -pi -e '
+      s/__APP_NAME__/$ENV{T_APP_NAME}/g; s/__DISPLAY_NAME__/$ENV{T_DISPLAY_NAME}/g;
+      s/__SLUG__/$ENV{T_SLUG}/g; s/__BUNDLE_ID__/$ENV{T_BUNDLE_ID}/g;
+      s/__ICON_SYMBOL__/$ENV{T_SYMBOL}/g; s/__ICON_FROM__/$ENV{T_FROM}/g; s/__ICON_TO__/$ENV{T_TO}/g;' {} +
+  ok "files created"
+  local ref; ref="$(rel "$dest")"
+  # The short name works when the app is in ./ or ./apps/.
+  case "$dest" in "$PWD/$slug"|"$PWD/apps/$slug") ref="$slug" ;; esac
+  cmd_icon "$ref"
+  cmd_gen "$ref"
+  ok "$(rel "$dest") is ready. Next: mainline test $ref"
+}
+
+cmd_list() {
+  local d found=0
+  for d in "$PWD"/*/ "$PWD"/apps/*/; do
+    [ -f "$d/app.env" ] || continue
+    found=1
+    # shellcheck disable=SC1091
+    ( set -a; . "$d/app.env"; printf '%-22s %-34s %-8s %s\n' "$(basename "$d")" "$BUNDLE_ID" "$MARKETING_VERSION" "$(rel "${d%/}")" )
+  done
+  if [ "$found" = 0 ]; then
+    local examples=""
+    for d in "$MAINLINE_ROOT"/examples/*/; do examples="$examples $(basename "$d")"; done
+    info "no apps here. Create one with: mainline new <slug>   (examples you can run by name:$examples)"
+  fi
+}
+
+cmd_guide() {
+  # Links in the guide are relative to docs/; make them absolute so they work from any folder.
+  printf '<!-- mainline %s guide. Docs: %s/docs -->\n' "$MAINLINE_VERSION" "$MAINLINE_ROOT"
+  sed -E "s#\]\(([a-z0-9-]+\.md)#](${MAINLINE_ROOT}/docs/\1#g; s#\]\(\.\./#](${MAINLINE_ROOT}/#g" "$MAINLINE_ROOT/docs/agent-guide.md"
+}
+
+# ------------------------------------------------------------------ icon / gen
+cmd_icon() {
+  load_config; load_app "${1:-}"
+  local out="$APP_DIR/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+  if [ -n "${ICON_SCRIPT:-}" ]; then
+    # Custom artwork: the app ships its own renderer, called as <script> <out.png>.
+    [ -x "$APP_DIR/$ICON_SCRIPT" ] || die "ICON_SCRIPT $ICON_SCRIPT is not an executable file in $(rel "$APP_DIR")"
+    "$APP_DIR/$ICON_SCRIPT" "$out" >"$LOG_DIR/icon.log" 2>&1 || { cat "$LOG_DIR/icon.log" >&2; die "icon script failed"; }
+    [ "$(sips -g hasAlpha "$out" | awk '/hasAlpha/ {print $2}')" = "no" ] \
+      || die "the icon script made an image with an alpha channel (App Store Connect rejects it)"
+  else
+    local glyph=(--symbol "$ICON_SYMBOL")
+    [ -z "${ICON_TEXT:-}" ] || glyph=(--text "$ICON_TEXT")
+    appicon --out "$out" "${glyph[@]}" --from "$ICON_FROM" --to "$ICON_TO" >/dev/null
+  fi
+  # The accent color follows the icon's gradient start.
+  cat >"$APP_DIR/Resources/Assets.xcassets/AccentColor.colorset/Contents.json" <<EOF
+{
+  "colors" : [
+    {
+      "color" : {
+        "color-space" : "srgb",
+        "components" : { "alpha" : "1.000", "blue" : "$(hex_component "$ICON_FROM" 2)", "green" : "$(hex_component "$ICON_FROM" 1)", "red" : "$(hex_component "$ICON_FROM" 0)" }
+      },
+      "idiom" : "universal"
+    }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
+EOF
+  ok "icon rendered: $(rel "$out")"
+}
+
+cmd_gen() {
+  load_config; load_app "${1:-}"
+  [ -f "$APP_DIR/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" ] || cmd_icon "$APP_REF"
+  export DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+  (cd "$APP_DIR" && xcodegen generate --quiet --spec project.yml) >"$LOG_DIR/gen.log" 2>&1 \
+    || { cat "$LOG_DIR/gen.log" >&2; die "xcodegen failed"; }
+  # shellcheck disable=SC2016  # looking for a literal ${
+  if grep -q '\${' "$XCODEPROJ/project.pbxproj"; then
+    die "unexpanded \${VAR} in the generated project. Check app.env and ~/.mainline/config.env:
+$(grep -o '\${[A-Z_]*}' "$XCODEPROJ/project.pbxproj" | sort -u)"
+  fi
+  ok "generated $(rel "$XCODEPROJ")"
+}
+
+# ------------------------------------------------------------------ build / test / run
+cmd_build() {
+  cmd_gen "${1:-}"
+  local udid; udid="$(simulator_udid)"
+  step "Building $APP_NAME for the simulator"
+  run_logged build xcodebuild build -project "$XCODEPROJ" -scheme "$APP_NAME" -configuration Debug \
+    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$DERIVED_DATA" \
+    || die "build failed"
+  ok "build succeeded"
+}
+
+cmd_test() {
+  local app="${1:-}"; shift || true
+  local unit_only=0 only_ids=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --unit-only) unit_only=1; shift ;;
+      --only) [ $# -ge 2 ] || die "--only needs <Target/Class[/method]>" 64; only_ids="$only_ids $2"; shift 2 ;;
+      *) die "unknown option $1" 64 ;;
+    esac
+  done
+  cmd_gen "$app"
+  local only=() id
+  [ "$unit_only" = 0 ] || only=(-only-testing:"${APP_NAME}Tests")
+  for id in $only_ids; do only+=(-only-testing:"$id"); done
+  local udid; udid="$(simulator_udid)"
+  local results="$BUILD_DIR/TestResults.xcresult"
+  rm -rf "$results"
+  step "Testing $APP_NAME on the simulator"
+  local status=0
+  run_logged test xcodebuild test -project "$XCODEPROJ" -scheme "$APP_NAME" \
+    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$DERIVED_DATA" \
+    -resultBundlePath "$results" -parallel-testing-enabled NO ${only[@]+"${only[@]}"} || status=$?
+  if [ -d "$results" ]; then
+    xcrun xcresulttool get test-results summary --path "$results" 2>/dev/null | jq -r '
+      "    result: \(.result)  passed: \(.passedTests)  failed: \(.failedTests)  skipped: \(.skippedTests)",
+      (.testFailures[]? | "    ✘ \(.testName): \(.failureText)")' >&2 || true
+  fi
+  [ "$status" = 0 ] || die "tests failed (results: $(rel "$results"))"
+  ok "tests passed"
+}
+
+cmd_run() {
+  local app="${1:-}"; shift || true
+  local wait=3 dark=0 show=0 shot=1 launch_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --wait) wait="$2"; shift 2 ;;
+      --dark) dark=1; shift ;;
+      --show) show=1; shift ;;
+      --no-screenshot) shot=0; shift ;;
+      --) shift; launch_args=("$@"); break ;;
+      *) die "unknown option $1" 64 ;;
+    esac
+  done
+  cmd_build "$app"
+  local udid; udid="$(simulator_udid)"
+  local app_path="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/$APP_NAME.app"
+  step "Launching in the simulator"
+  xcrun simctl boot "$udid" 2>/dev/null || true
+  xcrun simctl bootstatus "$udid" -b >/dev/null
+  [ "$show" = 0 ] || open -a Simulator
+  xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 \
+    --cellularBars 4 --wifiBars 3 2>/dev/null || true
+  xcrun simctl ui "$udid" appearance "$([ "$dark" = 1 ] && echo dark || echo light)" 2>/dev/null || true
+  xcrun simctl install "$udid" "$app_path"
+  xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
+  xcrun simctl launch "$udid" "$BUNDLE_ID" ${launch_args[@]+"${launch_args[@]}"} >/dev/null
+  ok "launched $BUNDLE_ID"
+  if [ "$shot" = 1 ]; then
+    sleep "$wait"
+    local out; out="$BUILD_DIR/screenshots/$(date +%Y%m%d-%H%M%S).png"
+    mkdir -p "$(dirname "$out")"
+    xcrun simctl io "$udid" screenshot "$out" >/dev/null 2>&1
+    ok "screenshot: $(rel "$out")"
+    echo "$out"
+  fi
+}
+
+# Exports the named XCTAttachment screenshots from the last `test` run to <app>/build/screenshots/tests/.
+# UI tests can capture screens that need taps or scrolling: see "Screens behind taps" in docs/playbook.md.
+cmd_screenshots() {
+  load_config; load_app "${1:-}"
+  local results="$BUILD_DIR/TestResults.xcresult" out="$BUILD_DIR/screenshots/tests" raw="$BUILD_DIR/screenshots/.raw"
+  [ -d "$results" ] || die "no test results yet. Run: mainline test $APP_REF"
+  rm -rf "$out" "$raw"; mkdir -p "$out" "$raw"
+  xcrun xcresulttool export attachments --path "$results" --output-path "$raw" >/dev/null 2>&1 \
+    || die "could not export attachments from $(rel "$results")"
+  local name file count=0
+  # Keep only attachments the tests named themselves (skip automatic recordings and hierarchy dumps).
+  while read -r name file; do
+    cp "$raw/$file" "$out/$name.png"
+    echo "$out/$name.png"
+    count=$((count + 1))
+  done < <(jq -r '.[] | .attachments[] | select(.exportedFileName | endswith(".png"))
+                 | select(.suggestedHumanReadableName | test("^(UI Snapshot|Screen Recording|Synthesized)") | not)
+                 | "\(.suggestedHumanReadableName | split("_0_")[0] | gsub("[^A-Za-z0-9._-]"; "-")) \(.exportedFileName)"' "$raw/manifest.json")
+  rm -rf "$raw"
+  ok "$count screenshot(s) in $(rel "$out")"
+}
+
+# ------------------------------------------------------------------ register / ship / status / crashes
+locale_label() {
+  case "$1" in
+    en-US) echo "English (U.S.)" ;; en-GB) echo "English (U.K.)" ;; de-DE) echo "German" ;;
+    fr-FR) echo "French" ;; es-ES) echo "Spanish (Spain)" ;; ja) echo "Japanese" ;; *) echo "$1" ;;
+  esac
+}
+
+# Prints the app's App Store Connect ID; exits 10 with the web form's values if the record is missing.
+ensure_registered() {
+  step "Registering bundle ID $BUNDLE_ID"
+  asc bundle-id ensure "$BUNDLE_ID" "$DISPLAY_NAME" >/dev/null
+  ok "bundle ID registered"
+  step "Looking up the App Store Connect app record"
+  local app_id status=0
+  app_id="$(asc app find "$BUNDLE_ID" 2>/dev/null)" || status=$?
+  if [ "$status" = 3 ]; then
+    cat >&2 <<EOF
+
+    The App Store Connect app record doesn't exist yet, and Apple's API can't create it.
+    Create it once on the web (docs/web-steps.md#create-the-app-record):
+
+      URL            https://appstoreconnect.apple.com/apps  →  "+"  →  New App
+      Platforms      iOS
+      Name           $ASC_APP_NAME
+      Primary Lang.  $(locale_label "$PRIMARY_LOCALE")
+      Bundle ID      $DISPLAY_NAME - $BUNDLE_ID
+      SKU            $SKU
+      User Access    Full Access
+
+    Then run again: mainline ship $APP_REF
+EOF
+    exit 10
+  elif [ "$status" != 0 ]; then
+    asc app find "$BUNDLE_ID" >/dev/null  # run again to show the error
+    die "app lookup failed"
+  fi
+  ok "app record $app_id"
+  echo "$app_id"
+}
+
+cmd_register() {
+  load_config; load_app "${1:-}"
+  have_credentials || require_credentials
+  ensure_registered >/dev/null
+  ok "ready to ship"
+}
+
+cmd_ship() {
+  local app="${1:-}"; shift || true
+  local skip_tests=0 no_wait=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --skip-tests) skip_tests=1; shift ;;
+      --no-wait) no_wait=1; shift ;;
+      *) die "unknown option $1" 64 ;;
+    esac
+  done
+  load_config; load_app "$app"
+  require_credentials
+  local started; started="$(date +%s)"
+
+  # 1. App Store Connect prerequisites
+  local app_id; app_id="$(ensure_registered)"
+
+  # 2. Tests (the gate: never upload a build that fails its tests)
+  if [ "$skip_tests" = 1 ]; then cmd_gen "$app"; warn "skipping tests (--skip-tests)"
+  else cmd_test "$app"; fi
+
+  # 3. Build number = max(highest on App Store Connect, last uploaded from this machine) + 1.
+  #    The local record covers builds uploaded minutes ago that the API doesn't list yet.
+  step "Choosing the build number"
+  local state_file="$MAINLINE_HOME/state/$BUNDLE_ID.last-build"
+  local api_next local_last=0 build_number
+  api_next="$(asc build next-number "$app_id" 2>"$LOG_DIR/build-number.log")" \
+    || { cat "$LOG_DIR/build-number.log" >&2; die "could not read existing build numbers from App Store Connect"; }
+  [ ! -f "$state_file" ] || local_last="$(cat "$state_file")"
+  build_number=$(( api_next > local_last + 1 ? api_next : local_last + 1 ))
+  ok "version $MARKETING_VERSION build $build_number"
+
+  local auth=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID")
+  [ -z "${ASC_ISSUER_ID:-}" ] || auth+=(-authenticationKeyIssuerID "$ASC_ISSUER_ID")
+
+  # 4. Archive UNSIGNED. Signing happens at export with Apple's cloud-managed distribution
+  #    certificate, so no private key, keychain access or registered device is ever needed.
+  #    That makes ship work headless and over SSH, where the login keychain is locked.
+  local archive="$BUILD_DIR/archives/$APP_NAME-$MARKETING_VERSION-$build_number.xcarchive"
+  step "Archiving (Release, generic iOS device, unsigned)"
+  rm -rf "$archive"
+  run_logged archive xcodebuild archive -project "$XCODEPROJ" -scheme "$APP_NAME" -configuration Release \
+    -destination "generic/platform=iOS" -archivePath "$archive" -derivedDataPath "$DERIVED_DATA" \
+    CURRENT_PROJECT_VERSION="$build_number" CODE_SIGNING_ALLOWED=NO \
+    || die "archive failed (see the errors above)"
+  ok "archived $(rel "$archive")"
+
+  # 5. Export a signed .ipa for App Store Connect (cloud signing through the API key)
+  local export_dir="$BUILD_DIR/export/$build_number" plist="$BUILD_DIR/ExportOptions.plist"
+  cat >"$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>destination</key><string>export</string>
+  <key>teamID</key><string>$DEVELOPMENT_TEAM</string>
+  <key>signingStyle</key><string>automatic</string>
+  <key>uploadSymbols</key><true/>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>
+EOF
+  step "Exporting a signed .ipa"
+  rm -rf "$export_dir"
+  run_logged export xcodebuild -exportArchive -archivePath "$archive" -exportPath "$export_dir" \
+    -exportOptionsPlist "$plist" "${auth[@]}" \
+    || die "export failed. See docs/troubleshooting.md#signing"
+  local ipa; ipa="$(find "$export_dir" -name '*.ipa' | head -1)"
+  [ -n "$ipa" ] || die "export produced no .ipa"
+  ok "exported $(rel "$ipa")"
+
+  # 6. Upload
+  local alt=(--api-key "$ASC_KEY_ID" --p8-file-path "$ASC_KEY_PATH")
+  if [ -n "${ASC_ISSUER_ID:-}" ]; then alt+=(--api-issuer "$ASC_ISSUER_ID"); else alt+=(--api-key-subject user); fi
+  step "Uploading to App Store Connect"
+  run_logged upload xcrun altool --upload-package "$ipa" "${alt[@]}" \
+    || die "upload failed. See docs/troubleshooting.md#upload"
+  mkdir -p "$(dirname "$state_file")"
+  echo "$build_number" >"$state_file"
+  ok "uploaded build $build_number"
+
+  # 7. TestFlight group and testers (internal groups with access to all builds get every new build)
+  step "Configuring TestFlight"
+  local group_id; group_id="$(asc group ensure "$app_id" "$TESTFLIGHT_GROUP" 2>/dev/null)" \
+    || { asc group ensure "$app_id" "$TESTFLIGHT_GROUP" >/dev/null; die "could not configure the TestFlight group"; }
+  ok "group \"$TESTFLIGHT_GROUP\""
+  local email
+  for email in $(echo "${TESTER_EMAILS:-}" | tr ',' ' '); do
+    if asc tester add "$group_id" "$email" >/dev/null 2>"$LOG_DIR/tester.log"; then ok "tester $email"
+    else warn "could not add tester $email: $(tail -1 "$LOG_DIR/tester.log")"; fi
+  done
+
+  # 8. Wait for processing
+  if [ "$no_wait" = 1 ]; then
+    warn "not waiting for processing (--no-wait). Check with: mainline status $APP_REF"
+  else
+    step "Waiting for App Store Connect to process the build (usually 5–20 min)"
+    asc build wait "$app_id" "$build_number" --timeout "${BUILD_WAIT_TIMEOUT:-2700}" >/dev/null \
+      || die "the build didn't finish processing. Check: mainline status $APP_REF" $?
+    ok "build $build_number is processed and available to the \"$TESTFLIGHT_GROUP\" group"
+  fi
+
+  local elapsed=$(( $(date +%s) - started ))
+  step "Shipped $DISPLAY_NAME $MARKETING_VERSION ($build_number) in $(( elapsed / 60 ))m$(( elapsed % 60 ))s"
+  info "TestFlight: https://appstoreconnect.apple.com/apps/$app_id/testflight/ios"
+}
+
+cmd_status() {
+  load_config; load_app "${1:-}"
+  have_credentials || require_credentials
+  local app_id; app_id="$(asc app find "$BUNDLE_ID")"
+  asc build list "$app_id" --limit "${2:-10}"
+  info "TestFlight: https://appstoreconnect.apple.com/apps/$app_id/testflight/ios"
+}
+
+cmd_crashes() {
+  load_config; load_app "${1:-}"
+  have_credentials || require_credentials
+  local app_id; app_id="$(asc app find "$BUNDLE_ID")"
+  local dir="$BUILD_DIR/crashes"; mkdir -p "$dir"
+  local list="$dir/submissions.json"
+  asc api GET "/v1/apps/$app_id/betaFeedbackCrashSubmissions?limit=${2:-10}" >"$list" || die "couldn't list crash reports"
+  local count; count="$(jq '.data | length' "$list")"
+  step "$count TestFlight crash report(s) for $APP_NAME"
+  [ "$count" -gt 0 ] || return 0
+  local id
+  for id in $(jq -r '.data[].id' "$list"); do
+    local log="$dir/$id.crash"
+    [ -s "$log" ] || asc api GET "/v1/betaFeedbackCrashSubmissions/$id/crashLog" | jq -r '.data.attributes.logText // empty' >"$log"
+    jq -r --arg id "$id" '.data[] | select(.id == $id) | .attributes |
+      "\n\(.createdDate)  \(.deviceModel) iOS \(.osVersion)  tester comment: \"\(.comment // "" | gsub("\\s+$"; ""))\""' "$list"
+    if [ ! -s "$log" ]; then warn "crash log not available yet"; continue; fi
+    grep -E '^(Version|Exception Type|Termination Reason):' "$log" | sed 's/^/    /'
+    # The crashed thread, keeping frames from the app's own binary: TestFlight's symbols for system
+    # frames are often wrong, but the app's frames (symbolicated from the uploaded dSYM) are reliable.
+    local thread; thread="$(sed -n 's/^Triggered by Thread: *\([0-9]*\).*/\1/p' "$log")"
+    echo "    crashed thread $thread, app frames:"
+    awk -v t="Thread $thread Crashed:" -v app="$APP_NAME" '
+      $0 == t { on = 1; next }  on && /^$/ { exit }
+      on && $2 == app { $1 = $2 = $3 = ""; sub(/^ +/, ""); print "      " $0 }' "$log"
+    info "full log: $(rel "$log")"
+  done
+}
+
+cmd_asc() {
+  load_config
+  asc "$@"
+}
+
+# ------------------------------------------------------------------ dispatch
+command="${1:-help}"; shift || true
+case "$command" in
+  setup|doctor|init|new|list|guide|gen|icon|build|test|run|screenshots|register|ship|status|crashes|asc) "cmd_$command" "$@" ;;
+  version|-v|--version) echo "mainline $MAINLINE_VERSION" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 64 ;;
+esac

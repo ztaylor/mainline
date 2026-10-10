@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="mainline: a line from idea through new, build, test, run, register and ship, ending at TestFlight">
+<style>
+  .word { font: 700 88px -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing: -3px; fill: #F0F3F6; }
+  .tag  { font: 400 28px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif; fill: #9198A1; }
+  .cmd  { font: 500 19px ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; fill: #F0F3F6; }
+  .end  { font: 600 19px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #3FB950; }
+  .idea { font: 500 19px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #9198A1; }
+</style>
+<text x="82" y="120" class="word">mainline</text>
+<text x="86" y="172" class="tag">Idea → TestFlight, from the command line. Built for AI agents.</text>
+<line x1="30" y1="290" x2="90" y2="290" stroke="#2A313C" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 14"/>
+<text x="28" y="264" class="idea" text-anchor="start">idea</text>
+<line x1="90" y1="290" x2="1020" y2="290" stroke="#2A313C" stroke-width="10" stroke-linecap="round"/>
+<line x1="90" y1="290" x2="90" y2="290" stroke="#3FB950" stroke-width="10" stroke-linecap="round">
+  <animate attributeName="x2" values="90;1020;1020;90" keyTimes="0;0.623;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</line>
+<circle cx="90.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.000;0.005;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="90.0" y="342" class="cmd" text-anchor="middle">new</text>
+<circle cx="264.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.117;0.122;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="264.0" y="342" class="cmd" text-anchor="middle">build</text>
+<circle cx="438.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.233;0.238;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="438.0" y="342" class="cmd" text-anchor="middle">test</text>
+<circle cx="612.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.350;0.355;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="612.0" y="342" class="cmd" text-anchor="middle">run</text>
+<circle cx="786.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.466;0.471;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="786.0" y="342" class="cmd" text-anchor="middle">register</text>
+<circle cx="960.0" cy="290" r="15" fill="#0D1117" stroke="#2A313C" stroke-width="6">
+  <animate attributeName="stroke" values="#2A313C;#2A313C;#3FB950;#3FB950;#2A313C" keyTimes="0;0.583;0.588;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</circle>
+<text x="960.0" y="342" class="cmd" text-anchor="middle">ship</text>
+<rect x="1060" y="226" width="64" height="128" rx="14" fill="#0D1117" stroke="#F0F3F6" stroke-width="5"/>
+<rect x="1081.0" y="235" width="22" height="7" rx="3.5" fill="#F0F3F6"/>
+<g opacity="0">
+  <circle cx="1092.0" cy="290" r="19" fill="#3FB950"/>
+  <path d="M 1083.0 291 l 6 6 l 12 -13" fill="none" stroke="#0D1117" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.650;0.680;0.94;1" dur="8.0s" repeatCount="indefinite"/>
+</g>
+<text x="1092.0" y="380" class="end" text-anchor="middle">TestFlight</text>
+<g>
+  <circle cx="90" cy="290" r="22" fill="#3FB950" opacity="0.25">
+    <animate attributeName="cx" values="90;1020;1020" keyTimes="0;0.623;1" dur="8.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.25;0.25;0;0" keyTimes="0;0.623;0.643;1" dur="8.0s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="90" cy="290" r="11" fill="#3FB950">
+    <animate attributeName="cx" values="90;1020;1020" keyTimes="0;0.623;1" dur="8.0s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.623;0.643;1" dur="8.0s" repeatCount="indefinite"/>
+  </circle>
+</g>
+</svg>

@@ -1,0 +1,6 @@
+# mainline build output and the generated Xcode project
+build/
+*.xcodeproj/
+Generated/
+xcuserdata/
+.DS_Store

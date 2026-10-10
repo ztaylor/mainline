@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -x bin/mainline lib/common.sh
+      - name: JSON
+        run: |
+          for f in .claude-plugin/marketplace.json plugins/mainline/.claude-plugin/plugin.json; do
+            jq empty "$f" && echo "ok $f"
+          done
+      - name: No secrets
+        run: |
+          if git ls-files | grep -E '\.p8$|(^|/)credentials\.env$'; then echo "::error::key or credentials file committed"; exit 1; fi
+          if git grep -nE 'BEGIN (EC |RSA )?PRIVATE KEY'; then echo "::error::private key committed"; exit 1; fi
+
+  test:
+    name: Test on macOS
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep mainline's settings in a temporary folder
+        run: echo "MAINLINE_HOME=$RUNNER_TEMP/mainline-home" >> "$GITHUB_ENV"
+      - name: Install XcodeGen and jq
+        run: brew install xcodegen jq
+      - name: Xcode
+        run: xcodebuild -version
+      - name: Helper tools
+        run: swift build -c release --package-path tools/MainlineTools
+      - name: Doctor (the toolchain checks; this runner has no Apple account)
+        run: bin/mainline doctor || true
+      - name: Test the example app
+        run: bin/mainline test tally
+      - name: Create an app from the template and test it
+        run: |
+          bin/mainline setup --prefix com.example.ci
+          cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/bin/mainline" init ci-apps && cd ci-apps
+          "$GITHUB_WORKSPACE/bin/mainline" new ci-check --name "CI Check" --symbol checkmark.seal.fill
+          "$GITHUB_WORKSPACE/bin/mainline" test ci-check
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            examples/tally/build/logs
+            ${{ runner.temp }}/ci-apps/apps/ci-check/build/logs

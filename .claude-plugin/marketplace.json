@@ -1,0 +1,12 @@
+{
+  "name": "mainline",
+  "description": "Take iOS apps from idea to TestFlight from the command line",
+  "owner": { "name": "Zachary Taylor", "url": "https://github.com/ztaylor" },
+  "plugins": [
+    {
+      "name": "mainline",
+      "source": "./plugins/mainline",
+      "description": "Build, test, screenshot and ship iOS apps to TestFlight with mainline, without opening Xcode"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "mainline",
+  "version": "0.1.0",
+  "description": "Build, test, screenshot and ship iOS apps to TestFlight with mainline, without opening Xcode",
+  "author": { "name": "Zachary Taylor", "url": "https://github.com/ztaylor" },
+  "homepage": "https://github.com/ztaylor/mainline",
+  "repository": "https://github.com/ztaylor/mainline",
+  "license": "MIT",
+  "keywords": ["ios", "swiftui", "testflight", "app-store-connect", "xcode"]
+}
