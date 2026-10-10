@@ -1,7 +1,6 @@
 # Setup
 
-Do part A once per Mac and part B once per Apple developer account. It takes about 30 minutes, most of it Xcode
-downloading. After that, each new app needs only one web step: creating its App Store Connect record ([web steps](web-steps.md#create-the-app-record)).
+Do part A once per Mac and part B once per Apple developer account. Allow time for Xcode and the simulator runtime to download; installation time depends on your connection. After that, each new app needs only one web step: creating its App Store Connect record ([web steps](web-steps.md#create-the-app-record)).
 
 | Marker | Meaning |
 | --- | --- |
@@ -49,7 +48,7 @@ mainline prefers the simulator named in `SIMULATOR_NAME` (default `iPhone 17 Pro
 ```sh
 brew install xcodegen jq
 git clone https://github.com/ztaylor/mainline ~/mainline
-ln -s ~/mainline/bin/mainline /usr/local/bin/mainline     # or anywhere on your PATH
+export PATH="$HOME/mainline/bin:$PATH"     # add this to ~/.zshrc to keep it
 ```
 
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) generates each app's Xcode project from a short YAML file, and
@@ -145,7 +144,8 @@ If the API check fails, see [troubleshooting](troubleshooting.md#api-credentials
 └── state/              the last build number uploaded per app, from this Mac
 ```
 
-Nothing personal is ever written into mainline's folder or your apps. Set `MAINLINE_HOME` to move `~/.mainline`, or
+Account configuration and API credentials stay outside your repositories. Generated projects and logs contain the
+Team ID and bundle ID; each app records its bundle ID in `app.env`. Set `MAINLINE_HOME` to move `~/.mainline`, or
 `MAINLINE_CONFIG` / `MAINLINE_CREDENTIALS` to point at individual files (handy for CI).
 
 Next: the [playbook](playbook.md), or hand it to your agent ([agents](agents.md)).

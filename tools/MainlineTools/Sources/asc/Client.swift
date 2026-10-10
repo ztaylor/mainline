@@ -31,10 +31,10 @@ struct Credentials {
     static func fromEnvironment() throws -> Credentials {
         let env = ProcessInfo.processInfo.environment
         guard let keyID = env["ASC_KEY_ID"], !keyID.isEmpty else {
-            throw ASCError.config("ASC_KEY_ID is not set (see docs/01-one-time-setup.md)")
+            throw ASCError.config("ASC_KEY_ID is not set (see docs/setup.md)")
         }
         guard let rawPath = env["ASC_KEY_PATH"], !rawPath.isEmpty else {
-            throw ASCError.config("ASC_KEY_PATH is not set (see docs/01-one-time-setup.md)")
+            throw ASCError.config("ASC_KEY_PATH is not set (see docs/setup.md)")
         }
         let path = (rawPath as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else {
@@ -81,16 +81,31 @@ func makeToken(_ creds: Credentials, lifetime: Int = 15 * 60) throws -> String {
 
 typealias JSON = [String: Any]
 
+/// Authenticated API requests must never follow redirects to another service.
+private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 final class ASCClient {
-    private let baseURL = URL(string: "https://api.appstoreconnect.apple.com")!
+    private let session: URLSession
     private let creds: Credentials
     private var token: String
     private var tokenIssued = Date()
+    /// Seconds of backoff per attempt; tests set it to 0.
+    var retryDelay: Double = 5
 
-    init(credentials: Credentials) throws {
+    init(credentials: Credentials, configuration: URLSessionConfiguration = .ephemeral) throws {
+        session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         creds = credentials
         token = try makeToken(credentials)
     }
+
+    deinit { session.invalidateAndCancel() }
 
     private func freshToken() throws -> String {
         // Tokens live 15 minutes; refresh well before expiry for long waits.
@@ -104,25 +119,12 @@ final class ASCClient {
     /// `path` may be an API path ("/v1/apps") or an absolute URL (pagination `links.next`).
     @discardableResult
     func request(_ method: String, _ path: String, query: [String: String] = [:], body: JSON? = nil) async throws -> JSON {
-        var components: URLComponents
-        if path.hasPrefix("https://") {
-            components = URLComponents(string: path)!
-        } else {
-            // String concatenation keeps any "?query" in `path` intact (useful for `asc api`).
-            guard let parsed = URLComponents(string: baseURL.absoluteString + path) else {
-                throw ASCError.usage("invalid API path: \(path)")
-            }
-            components = parsed
-        }
-        if !query.isEmpty {
-            components.queryItems = (components.queryItems ?? [])
-                + query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        }
+        let url = try Self.apiURL(path, query: query)
 
         var attempt = 0
         while true {
             attempt += 1
-            var req = URLRequest(url: components.url!)
+            var req = URLRequest(url: url)
             req.httpMethod = method
             req.setValue("Bearer \(try freshToken())", forHTTPHeaderField: "Authorization")
             if let body {
@@ -130,12 +132,14 @@ final class ASCClient {
                 req.httpBody = try JSONSerialization.data(withJSONObject: body)
             }
 
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await session.data(for: req)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
 
-            // Retry rate limiting and transient server errors with backoff.
-            if (status == 429 || status >= 500) && attempt < 4 {
-                try await Task.sleep(nanoseconds: UInt64(attempt * 5) * 1_000_000_000)
+            // 429 means Apple did nothing, so any request can be retried. A 5xx may come after a mutation
+            // took effect, so only reads are retried then: replaying a POST could create a duplicate.
+            let isRead = method == "GET" || method == "HEAD"
+            if (status == 429 || (status >= 500 && isRead)), attempt < 4 {
+                try await Task.sleep(nanoseconds: UInt64(Double(attempt) * retryDelay * 1_000_000_000))
                 continue
             }
 
@@ -143,17 +147,39 @@ final class ASCClient {
             guard (200..<300).contains(status) else {
                 throw ASCError.http(status: status, message: Self.errorMessage(json, raw: data))
             }
+            guard data.isEmpty || (try? JSONSerialization.jsonObject(with: data)) is JSON else {
+                throw ASCError.http(status: status, message: "Expected a JSON object in the API response.")
+            }
             return json
         }
+    }
+
+    /// Accept Apple pagination URLs, but never send a bearer token to another origin.
+    static func apiURL(_ path: String, query: [String: String] = [:]) throws -> URL {
+        let base = "https://api.appstoreconnect.apple.com"
+        guard path.hasPrefix("/") || path.hasPrefix(base + "/"),
+              var components = URLComponents(string: path.hasPrefix("/") ? base + path : path),
+              components.scheme == "https", components.host == "api.appstoreconnect.apple.com",
+              components.port == nil, components.user == nil, components.password == nil,
+              components.fragment == nil else {
+            throw ASCError.usage("expected an App Store Connect API path or URL")
+        }
+        components.queryItems = (components.queryItems ?? [])
+            + query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw ASCError.usage("invalid API path") }
+        return url
     }
 
     /// GET a collection and follow `links.next` until exhausted.
     func getAll(_ path: String, query: [String: String] = [:], maxPages: Int = 20) async throws -> [JSON] {
         var results: [JSON] = []
         var page = try await request("GET", path, query: query)
-        for _ in 0..<maxPages {
+        for index in 0..<maxPages {
             results += page["data"] as? [JSON] ?? []
             guard let next = (page["links"] as? JSON)?["next"] as? String else { break }
+            guard index + 1 < maxPages else {
+                throw ASCError.http(status: 0, message: "Collection exceeds \(maxPages) pages; refusing to return incomplete results.")
+            }
             page = try await request("GET", next)
         }
         return results

@@ -53,13 +53,17 @@ EOF
 }
 
 # ------------------------------------------------------------------ setup
+# sh_quote <value>: the value in single quotes, so sourcing the file gives it back literally.
+sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
 # set_kv <file> <KEY> <value>: replace KEY=… in an env file, or append it.
 set_kv() {
-  local file="$1"
+  local file="$1" quoted
+  quoted="$(sh_quote "$3")"
   if grep -q "^$2=" "$file" 2>/dev/null; then
-    K="$2" V="$3" perl -pi -e 's/^\Q$ENV{K}\E=.*/$ENV{K}="$ENV{V}"/' "$file"
+    K="$2" V="$quoted" perl -pi -e 's/^\Q$ENV{K}\E=.*/$ENV{K}=$ENV{V}/' "$file"
   else
-    printf '%s="%s"\n' "$2" "$3" >>"$file"
+    printf '%s=%s\n' "$2" "$quoted" >>"$file"
   fi
 }
 
@@ -72,15 +76,18 @@ ask() {
 }
 
 cmd_setup() {
-  local team="" prefix="" testers="" key="" key_id="" issuer="" given=0
+  local team="" prefix="" testers="" key="" key_id="" issuer="" issuer_given=0 given=0
   while [ $# -gt 0 ]; do
+    case "$1" in
+      --team|--prefix|--tester|--key|--key-id|--issuer) [ $# -ge 2 ] || die "$1 needs a value" 64 ;;
+    esac
     case "$1" in
       --team) team="$2"; given=1; shift 2 ;;
       --prefix) prefix="$2"; given=1; shift 2 ;;
       --tester) testers="${testers:+$testers,}$2"; given=1; shift 2 ;;
       --key) key="$2"; given=1; shift 2 ;;
       --key-id) key_id="$2"; given=1; shift 2 ;;
-      --issuer) issuer="$2"; given=1; shift 2 ;;
+      --issuer) issuer="$2"; issuer_given=1; given=1; shift 2 ;;
       *) die "unknown option $1" 64 ;;
     esac
   done
@@ -98,6 +105,7 @@ cmd_setup() {
     ask issuer "Issuer ID: the UUID above the keys table (leave empty for an Individual key)" "${ASC_ISSUER_ID:-}"
   fi
 
+  umask 077
   mkdir -p "$MAINLINE_HOME"; chmod 700 "$MAINLINE_HOME"
   if [ -n "$team$prefix$testers" ]; then
     [ -z "$team" ] || [[ "$team" =~ ^[A-Z0-9]{10}$ ]] || die "a Team ID is 10 capital letters and digits, e.g. ABCDE12345" 64
@@ -107,9 +115,10 @@ cmd_setup() {
     [ -z "$team" ] || set_kv "$CONFIG_FILE" DEVELOPMENT_TEAM "$team"
     [ -z "$prefix" ] || set_kv "$CONFIG_FILE" BUNDLE_PREFIX "$prefix"
     [ -z "$testers" ] || set_kv "$CONFIG_FILE" TESTER_EMAILS "$testers"
+    chmod 600 "$CONFIG_FILE"
     ok "saved $CONFIG_FILE"
   fi
-  if [ -n "$key$key_id$issuer" ]; then
+  if [ -n "$key$key_id$issuer" ] || [ "$issuer_given" = 1 ]; then
     if [ -n "$key" ]; then
       key="${key/#\~/$HOME}"
       [ -f "$key" ] || die "no file at $key" 64
@@ -124,7 +133,7 @@ cmd_setup() {
     chmod 600 "$CREDENTIALS_FILE"
     [ -z "$key" ] || set_kv "$CREDENTIALS_FILE" ASC_KEY_PATH "$key"
     [ -z "$key_id" ] || set_kv "$CREDENTIALS_FILE" ASC_KEY_ID "$key_id"
-    if [ "$given" = 0 ] || [ -n "$issuer" ]; then set_kv "$CREDENTIALS_FILE" ASC_ISSUER_ID "$issuer"; fi
+    if [ "$given" = 0 ] || [ "$issuer_given" = 1 ]; then set_kv "$CREDENTIALS_FILE" ASC_ISSUER_ID "$issuer"; fi
     ok "saved $CREDENTIALS_FILE"
   fi
   echo >&2
@@ -150,7 +159,7 @@ cmd_doctor() {
   check "xcodegen installed (brew install xcodegen)" command -v xcodegen
   check "jq installed (brew install jq)" command -v jq
   check "altool available" xcrun --find altool
-  if ensure_tools 2>/dev/null; then ok "helper tools built (asc, appicon)"; else warn "helper tools failed to build"; failed=1; fi
+  if (ensure_tools) 2>/dev/null; then ok "helper tools built (asc, appicon)"; else warn "helper tools failed to build"; failed=1; fi
   local udid
   if udid="$(simulator_udid 2>/dev/null)"; then
     ok "simulator: $(xcrun simctl list devices -j | jq -r --arg u "$udid" '.devices[][] | select(.udid==$u) | .name') ($udid)"
@@ -240,6 +249,9 @@ cmd_new() {
   local name="" symbol="app.fill" from="#4F46E5" to="#7C3AED" parent=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --name|--symbol|--from|--to|--dir) [ $# -ge 2 ] || die "$1 needs a value" 64 ;;
+    esac
+    case "$1" in
       --name) name="$2"; shift 2 ;;
       --symbol) symbol="$2"; shift 2 ;;
       --from) from="$2"; shift 2 ;;
@@ -248,15 +260,19 @@ cmd_new() {
       *) die "unknown option $1" 64 ;;
     esac
   done
+  [[ "$symbol" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid SF Symbol name" 64
+  [[ "$from" =~ ^#[A-Fa-f0-9]{6}$ ]] && [[ "$to" =~ ^#[A-Fa-f0-9]{6}$ ]] \
+    || die "icon colors must be #RRGGBB" 64
+  case "$name" in *$'\n'*|*$'\r'*) die "the display name must be one line" 64 ;; esac
   load_config
   [ -n "${BUNDLE_PREFIX:-}" ] || die "set your bundle ID prefix first: mainline setup --prefix com.yourname" 78
   if [ -z "$parent" ]; then
     if [ -d "$PWD/apps" ] || [ "$PWD" = "$MAINLINE_ROOT" ]; then parent="$PWD/apps"; else parent="$PWD"; fi
   fi
-  mkdir -p "$parent"
   [ -n "$name" ] || name="$(echo "$slug" | perl -pe 's/(^|-)(\w)/ \U$2/g; s/^ //')"
   local app_name; app_name="$(echo "$name" | perl -pe 's/[^A-Za-z0-9]//g; s/^(\d)/App$1/')"
   [ -n "$app_name" ] || die "could not make a Swift identifier from the name '$name'" 64
+  mkdir -p "$parent"
   local dest; dest="$(cd "$parent" && pwd)/$slug"
   [ ! -e "$dest" ] || die "$(rel "$dest") already exists" 64
 
@@ -271,7 +287,12 @@ cmd_new() {
   T_SYMBOL="$symbol" T_FROM="$from" T_TO="$to" \
     find "$dest" -type f \( -name '*.swift' -o -name '*.yml' -o -name '*.env' -o -name '*.md' -o -name '*.json' \) \
     -exec perl -pi -e '
-      s/__APP_NAME__/$ENV{T_APP_NAME}/g; s/__DISPLAY_NAME__/$ENV{T_DISPLAY_NAME}/g;
+      BEGIN {
+        ($swift = $ENV{T_DISPLAY_NAME}) =~ s/([\\"])/\\$1/g;   # inside a Swift string literal
+        ($shell = $ENV{T_DISPLAY_NAME}) =~ s/\x27/\x27\\\x27\x27/g;   # inside single quotes in app.env
+      }
+      s/__APP_NAME__/$ENV{T_APP_NAME}/g;
+      s/__DISPLAY_NAME__/($ARGV =~ m{\.env$} ? $shell : $ARGV =~ m{\.swift$} ? $swift : $ENV{T_DISPLAY_NAME})/ge;
       s/__SLUG__/$ENV{T_SLUG}/g; s/__BUNDLE_ID__/$ENV{T_BUNDLE_ID}/g;
       s/__ICON_SYMBOL__/$ENV{T_SYMBOL}/g; s/__ICON_FROM__/$ENV{T_FROM}/g; s/__ICON_TO__/$ENV{T_TO}/g;' {} +
   ok "files created"
@@ -385,12 +406,16 @@ cmd_test() {
   run_logged test xcodebuild test -project "$XCODEPROJ" -scheme "$APP_NAME" \
     -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$DERIVED_DATA" \
     -resultBundlePath "$results" -parallel-testing-enabled NO ${only[@]+"${only[@]}"} || status=$?
-  if [ -d "$results" ]; then
-    xcrun xcresulttool get test-results summary --path "$results" 2>/dev/null | jq -r '
+  local summary="" ran=""
+  if [ -d "$results" ] && summary="$(xcrun xcresulttool get test-results summary --path "$results" 2>/dev/null)"; then
+    echo "$summary" | jq -r '
       "    result: \(.result)  passed: \(.passedTests)  failed: \(.failedTests)  skipped: \(.skippedTests)",
       (.testFailures[]? | "    ✘ \(.testName): \(.failureText)")' >&2 || true
+    ran="$(echo "$summary" | jq -r '(.passedTests // 0) + (.failedTests // 0)' 2>/dev/null || true)"
   fi
   [ "$status" = 0 ] || die "tests failed (results: $(rel "$results"))"
+  # A green run that tested nothing proves nothing: fail so it can't gate a release.
+  [ "$ran" != 0 ] || die "no tests ran. Add tests for the app's model logic in Tests/ (Swift Testing: @Test, #expect)"
   ok "tests passed"
 }
 
@@ -400,6 +425,9 @@ cmd_run() {
   local wait=3 dark=0 show=0 shot=1 launch_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
+      --wait) [ $# -ge 2 ] || die "$1 needs a value" 64 ;;
+    esac
+    case "$1" in
       --wait) wait="$2"; shift 2 ;;
       --dark) dark=1; shift ;;
       --show) show=1; shift ;;
@@ -408,6 +436,7 @@ cmd_run() {
       *) die "unknown option $1" 64 ;;
     esac
   done
+  [[ "$wait" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "--wait must be a nonnegative number" 64
   cmd_build "$app"
   local udid; udid="$(simulator_udid)"
   local app_path="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/$APP_NAME.app"
@@ -465,7 +494,7 @@ locale_label() {
 # Prints the app's App Store Connect ID; exits 10 with the web form's values if the record is missing.
 ensure_registered() {
   step "Registering bundle ID $BUNDLE_ID"
-  asc bundle-id ensure "$BUNDLE_ID" "$DISPLAY_NAME" >/dev/null
+  asc bundle-id ensure "$BUNDLE_ID" "$DISPLAY_NAME" >/dev/null || return $?
   ok "bundle ID registered"
   step "Looking up the App Store Connect app record"
   local app_id status=0
@@ -587,8 +616,12 @@ EOF
 
   # 7. TestFlight group and testers (internal groups with access to all builds get every new build)
   step "Configuring TestFlight"
-  local group_id; group_id="$(asc group ensure "$app_id" "$TESTFLIGHT_GROUP" 2>/dev/null)" \
-    || { asc group ensure "$app_id" "$TESTFLIGHT_GROUP" >/dev/null; die "could not configure the TestFlight group"; }
+  local group_id group_status=0
+  group_id="$(asc group ensure "$app_id" "$TESTFLIGHT_GROUP" 2>"$LOG_DIR/group.log")" || group_status=$?
+  if [ "$group_status" != 0 ]; then
+    cat "$LOG_DIR/group.log" >&2
+    die "build $build_number was uploaded, but its TestFlight group needs attention. Fix the group, then: mainline status $APP_REF"
+  fi
   ok "group \"$TESTFLIGHT_GROUP\""
   local email
   for email in $(echo "${TESTER_EMAILS:-}" | tr ',' ' '); do
@@ -603,7 +636,7 @@ EOF
     step "Waiting for App Store Connect to process the build (usually 5–20 min)"
     asc build wait "$app_id" "$build_number" --timeout "${BUILD_WAIT_TIMEOUT:-2700}" >/dev/null \
       || die "the build didn't finish processing. Check: mainline status $APP_REF" $?
-    ok "build $build_number is processed and available to the \"$TESTFLIGHT_GROUP\" group"
+    ok "build $build_number is ready for internal testing"
   fi
 
   local elapsed=$(( $(date +%s) - started ))
@@ -614,6 +647,7 @@ EOF
 cmd_status() {
   load_config; load_app "${1:-}"
   have_credentials || require_credentials
+  [[ "${2:-10}" =~ ^[1-9][0-9]*$ ]] || die "build count must be a positive integer" 64
   local app_id; app_id="$(asc app find "$BUNDLE_ID")"
   asc build list "$app_id" --limit "${2:-10}"
   info "TestFlight: https://appstoreconnect.apple.com/apps/$app_id/testflight/ios"
@@ -622,6 +656,7 @@ cmd_status() {
 cmd_crashes() {
   load_config; load_app "${1:-}"
   have_credentials || require_credentials
+  [[ "${2:-10}" =~ ^[1-9][0-9]*$ ]] || die "crash count must be a positive integer" 64
   local app_id; app_id="$(asc app find "$BUNDLE_ID")"
   local dir="$BUILD_DIR/crashes"; mkdir -p "$dir"
   local list="$dir/submissions.json"

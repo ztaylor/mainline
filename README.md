@@ -9,10 +9,15 @@
 
 Take an iOS app from idea to TestFlight without opening Xcode.
 
-mainline is a small command-line tool that does every step of shipping a SwiftUI app: it creates the project, builds
-and tests it in the simulator, takes screenshots, signs it in Apple's cloud, uploads it, sets up TestFlight, and reads
-crash reports. It was built for AI agents. Tell Claude Code (or any coding agent) what you want, and it can go from a
-paragraph to a build on your phone on its own, asking you only for the things that need you.
+mainline creates, builds, tests, screenshots, signs and uploads SwiftUI apps from the terminal. It is designed for
+coding agents: your agent writes the app, and mainline gives it a repeatable path to internal TestFlight testing,
+with quiet logs, actionable exit codes and a playbook that ships with the tool. You can also run every command yourself.
+
+**Early release.** Requires a Mac with Xcode 26 or later. Simulator development needs no Apple account; shipping
+requires a paid Apple Developer Program membership, an App Store Connect API key and a one-time web form per app.
+App Store submission and external beta review are outside the current workflow.
+
+A typical shipping session (output abbreviated; processing time varies):
 
 ```
 $ mainline ship tally
@@ -32,7 +37,7 @@ $ mainline ship tally
     ✓ group "Internal"
     ✓ tester you@example.com
 ==> Waiting for App Store Connect to process the build (usually 5–20 min)
-    ✓ build 2 is processed and available to the "Internal" group
+    ✓ build 2 is ready for internal testing
 ==> Shipped Tally 1.0.0 (2) in 3m41s
 ```
 
@@ -58,8 +63,8 @@ and icon, the screenshots it checked its work against, and the crash fixes after
 
 - **No project files to babysit.** Each app is a short `project.yml` and an `app.env`. The Xcode project is generated
   before every command, so it can't drift, and an agent never edits one.
-- **No certificates.** Builds are archived unsigned and signed at export with Apple's cloud-managed certificate and an
-  App Store Connect API key. Nothing touches your keychain, so it works the same over SSH.
+- **No local signing certificates to manage.** Builds are archived unsigned and signed at export with Apple's cloud-managed certificate and an
+  App Store Connect API key. No local distribution private key is required, so this workflow also works over SSH.
 - **Apple's API for the rest.** Bundle IDs, build numbers, TestFlight groups and testers, processing, crash reports.
   The one thing Apple's API can't do, creating an app's store record, is a single form per app, and `mainline` prints
   every value for it.
@@ -75,7 +80,7 @@ You need a Mac with [Xcode](https://apps.apple.com/app/xcode/id497799835) and [H
 ```sh
 brew install xcodegen jq
 git clone https://github.com/ztaylor/mainline ~/mainline
-ln -s ~/mainline/bin/mainline /usr/local/bin/mainline
+export PATH="$HOME/mainline/bin:$PATH"         # add this to ~/.zshrc to keep it
 
 mainline doctor                              # what's missing?
 mainline test tally                          # the example app's tests, in the simulator
@@ -87,7 +92,7 @@ then follow [setup](docs/setup.md) to create an API key and save your settings:
 
 ```sh
 mainline setup --team ABCDE12345 --prefix com.yourname --tester you@example.com
-mainline setup --key ~/Downloads/AuthKey_ABC123DEFG.p8 --issuer <issuer-id>
+mainline setup --key ~/Downloads/AuthKey_ABC123DEFG.p8 --issuer 00000000-0000-0000-0000-000000000000
 ```
 
 Then create your first app. It's a self-contained folder that can live anywhere, as its own repo; mainline is just
@@ -151,7 +156,7 @@ job. [Agents](docs/agents.md) covers permissions, the browser step, and working 
 | --- | --- |
 | [`bin/mainline`](bin/mainline), [`lib/`](lib) | The CLI, in bash 3.2 so it runs on any Mac as is |
 | [`tools/MainlineTools`](tools/MainlineTools) | `asc`, an App Store Connect API client, and `appicon`, an icon renderer. Swift, no dependencies, built on first use. |
-| [`templates/app`](templates/app) | What `mainline new` starts from: SwiftUI, SwiftData, Swift Testing, XCTest UI tests |
+| [`templates/app`](templates/app) | What `mainline new` starts from: SwiftUI, a unit-test target and an XCTest UI smoke test |
 | [`examples/tally`](examples/tally) | A complete example app |
 | [`plugins/mainline`](plugins/mainline) | The Claude Code plugin |
 | [`docs`](docs) | The guides above. [`docs/media`](docs/media) is made by [`tools/media`](tools/media). |

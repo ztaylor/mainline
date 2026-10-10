@@ -103,7 +103,7 @@ Then put the accepted name in `ASC_APP_NAME` in `app.env` so the repo matches th
 > **Agents:** run `mainline register <app>` first and use the values it prints.
 > Open a new tab at `https://appstoreconnect.apple.com/apps`, click **+** → **New App**, fill each field, and click **Create**.
 > The **Primary Language** and **Bundle ID** dropdowns are native `<select>`s that ignore programmatic value-setting and
-> mouse clicks on the open list. Click the select to focus it, then use the keyboard (`Down` × N, `Return`). English (U.S.)
-> is 13 entries down; the newest bundle ID is usually first. Zoom in to confirm every field before clicking **Create**.
+> mouse clicks on the open list. Select by the visible label, or use the keyboard and verify the selected value.
+> Dropdown order can change; confirm the language and exact bundle ID before clicking **Create**.
 > After **Create** the dialog closes, and the page may not navigate. If the name is rejected, try the fallbacks above,
 > asking the human if the name matters to them, and update `ASC_APP_NAME`. Confirm with `mainline register <app>` (exit 0).

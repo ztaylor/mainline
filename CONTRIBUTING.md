@@ -6,7 +6,9 @@ workflow are all welcome.
 ## Build and test
 
 ```sh
-shellcheck -x bin/mainline lib/common.sh        # the CLI must stay clean, and bash 3.2 compatible
+shellcheck -x bin/mainline lib/common.sh tests/cli.sh        # the CLI must stay clean, and bash 3.2 compatible
+/bin/bash tests/cli.sh                         # offline CLI checks, isolated temporary settings
+swift test --package-path tools/MainlineTools  # offline API, token, argument and release-state tests
 swift build -c release --package-path tools/MainlineTools
 bin/mainline test tally                         # the example app, end to end in the simulator
 ```

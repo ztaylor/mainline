@@ -2,8 +2,12 @@
 
 Built with [mainline](https://github.com/ztaylor/mainline). App metadata is in `app.env`, the project spec in `project.yml`.
 
+Run these commands from this app's folder:
+
 ```sh
-mainline test __SLUG__                          # unit and UI tests on the simulator
-mainline run __SLUG__ -- -seed-sample-data      # launch in the simulator and take a screenshot
-mainline ship __SLUG__                          # test, archive, upload, TestFlight
+mainline test                          # unit and UI tests on the simulator
+mainline run -- -seed-sample-data      # launch in the simulator and take a screenshot
+mainline ship                          # test, archive, upload, TestFlight
 ```
+
+The starter checks that the first screen launches. Add model tests and a UI test of your main feature before shipping.

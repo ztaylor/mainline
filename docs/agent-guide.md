@@ -18,8 +18,8 @@ Run `mainline help` for every command and its options. The human-facing version 
 4. **Look at the app with your own eyes.** `mainline run <app> -- -seed-sample-data` prints a screenshot path. Read
    the image, and check it in dark mode with `--dark`. Iterate until it looks right. Compiling isn't the same as working.
 5. **Keep v1 small:** one or two screens, local data, no accounts or servers, no third-party packages unless asked.
-6. **Ask the human only for** `sudo` passwords, 2FA codes, payments, legal agreements, and naming decisions: the store
-   name and the bundle ID are permanent. Decide everything else yourself and say what you chose.
+6. **Ask the human only for** `sudo` passwords, 2FA codes, payments, legal agreements, and naming decisions:
+   confirm the store name and permanent bundle ID. Decide everything else yourself and say what you chose.
 7. **Don't change `BUNDLE_ID`** once the app record exists. Don't bump `MARKETING_VERSION` unless it's a new
    user-facing release; build numbers are automatic.
 
@@ -56,7 +56,8 @@ ask the human what it should be (it's usually their reverse domain, like `com.th
 
 - Unit tests with Swift Testing (`import Testing`, `@Test`, `#expect`) for the model logic and its edge cases.
 - At least one XCTest UI test that drives the main feature end to end, launched with `-ui-testing`.
-- `mainline test <app>` must pass. Use `--unit-only` for a quick loop and `--only <Target/Class[/method]>` for one test.
+- `mainline test <app>` must pass, and a run with no tests fails. The starter has only a UI launch test, so add
+  unit tests before you use `--unit-only`. Use `--unit-only` for a quick loop and `--only <Target/Class[/method]>` for one test.
   It prints each failure; the full log is in `<app>/build/logs/test.log`.
 
 ### 4. Look at it
@@ -82,6 +83,8 @@ ask the human what it should be (it's usually their reverse domain, like `com.th
 - `mainline ship <app>`. It takes 5 to 25 minutes, mostly Apple's processing. It tests, archives, signs in the cloud,
   uploads, adds the TestFlight group and testers, and waits until the build can be installed.
 - On exit 1, read the error lines it printed, then `<app>/build/logs/`, then [troubleshooting](troubleshooting.md).
+  If upload already succeeded, check `mainline status <app>` and resolve the reported TestFlight or compliance issue
+  before uploading again. Run only one `ship` per app at a time.
 
 ### 7. Report
 

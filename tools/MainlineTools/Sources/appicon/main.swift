@@ -11,20 +11,26 @@ import UniformTypeIdentifiers
 
 let usage = """
 usage: appicon --out <file.png> (--symbol <sf-symbol-name> | --text <chars>)
-               [--from <#hex>] [--to <#hex>] [--fg <#hex>] [--scale 0.0–1.0]
+               [--from <#hex>] [--to <#hex>] [--fg <#hex>] [--scale >0–1.0]
 """
 
-func fail(_ message: String) -> Never {
+func fail(_ message: String, code: Int32 = 64) -> Never {
     FileHandle.standardError.write(Data("appicon: \(message)\n\(usage)\n".utf8))
-    exit(64)
+    exit(code)
 }
 
+if CommandLine.arguments.count == 2, ["--help", "-h", "help"].contains(CommandLine.arguments[1]) {
+    print(usage)
+    exit(0)
+}
 var options: [String: String] = [:]
 var argv = Array(CommandLine.arguments.dropFirst())
 while !argv.isEmpty {
     let key = argv.removeFirst()
     guard key.hasPrefix("--"), !argv.isEmpty else { fail("bad argument \(key)") }
-    options[String(key.dropFirst(2))] = argv.removeFirst()
+    let name = String(key.dropFirst(2))
+    guard ["out", "symbol", "text", "from", "to", "fg", "scale"].contains(name) else { fail("unknown option \(key)") }
+    options[name] = argv.removeFirst()
 }
 
 func color(_ hex: String) -> CGColor {
@@ -41,7 +47,11 @@ guard let outPath = options["out"] else { fail("--out is required") }
 let from = color(options["from"] ?? "#4F46E5")
 let to = color(options["to"] ?? "#7C3AED")
 let foreground = NSColor(cgColor: color(options["fg"] ?? "#FFFFFF"))!
-let scale = CGFloat(Double(options["scale"] ?? "") ?? 0.56)
+guard let rawScale = Double(options["scale"] ?? "0.56"), rawScale.isFinite, rawScale > 0, rawScale <= 1 else {
+    fail("--scale must be greater than 0 and at most 1")
+}
+guard (options["symbol"] == nil) != (options["text"] == nil) else { fail("pass exactly one of --symbol or --text") }
+let scale = CGFloat(rawScale)
 let size = 1024
 
 // 32-bit RGB with the alpha byte skipped → the PNG is written without an alpha channel.
@@ -49,7 +59,7 @@ guard let ctx = CGContext(
     data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
     space: CGColorSpace(name: CGColorSpace.sRGB)!,
     bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-else { fail("could not create bitmap context") }
+else { fail("could not create bitmap context", code: 1) }
 
 // Background: diagonal gradient, top-left → bottom-right.
 let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [from, to] as CFArray, locations: [0, 1])!
@@ -87,12 +97,12 @@ if let symbolName = options["symbol"] {
 }
 NSGraphicsContext.current = nil
 
-guard let image = ctx.makeImage() else { fail("render failed") }
+guard let image = ctx.makeImage() else { fail("render failed", code: 1) }
 let url = URL(fileURLWithPath: outPath)
 try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
 guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-    fail("cannot write \(outPath)")
+    fail("cannot write \(outPath)", code: 1)
 }
 CGImageDestinationAddImage(dest, image, nil)
-guard CGImageDestinationFinalize(dest) else { fail("cannot write \(outPath)") }
+guard CGImageDestinationFinalize(dest) else { fail("cannot write \(outPath)", code: 1) }
 print(outPath)

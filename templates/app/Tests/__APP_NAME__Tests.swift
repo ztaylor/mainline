@@ -1,9 +1,5 @@
 import Testing
 @testable import __APP_NAME__
 
-// Unit tests use Swift Testing: https://developer.apple.com/documentation/testing
-struct __APP_NAME__Tests {
-    @Test func appModuleLoads() {
-        #expect(Bool(true))
-    }
-}
+// Add tests for your app's model behavior here using @Test and #expect.
+// The starter's launch check lives in UITests/; an empty unit target does not validate app behavior.

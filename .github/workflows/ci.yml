@@ -15,7 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x bin/mainline lib/common.sh
+        run: shellcheck -x bin/mainline lib/common.sh tests/cli.sh
+      - name: Offline CLI regressions
+        run: bash tests/cli.sh
       - name: JSON
         run: |
           for f in .claude-plugin/marketplace.json plugins/mainline/.claude-plugin/plugin.json; do
@@ -37,6 +39,10 @@ jobs:
         run: brew install xcodegen jq
       - name: Xcode
         run: xcodebuild -version
+      - name: Bash 3.2 CLI regressions
+        run: /bin/bash tests/cli.sh
+      - name: Helper tests
+        run: swift test --package-path tools/MainlineTools
       - name: Helper tools
         run: swift build -c release --package-path tools/MainlineTools
       - name: Doctor (the toolchain checks; this runner has no Apple account)
@@ -52,7 +58,11 @@ jobs:
       - name: A standalone app, run from inside its folder
         run: |
           cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/bin/mainline" new solo-check --symbol star.fill
-          cd solo-check && "$GITHUB_WORKSPACE/bin/mainline" test --unit-only
+          cd solo-check
+          # A leading option means "the app in this folder". The starter has only a UI test, and
+          # an empty unit-test run must fail rather than pass.
+          "$GITHUB_WORKSPACE/bin/mainline" test --only SoloCheckUITests
+          if "$GITHUB_WORKSPACE/bin/mainline" test --unit-only; then echo "an empty test run passed" >&2; exit 1; fi
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4

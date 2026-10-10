@@ -14,7 +14,7 @@ installed version.
      ```sh
      brew install xcodegen jq
      git clone https://github.com/ztaylor/mainline ~/mainline
-     ln -s ~/mainline/bin/mainline /usr/local/bin/mainline
+     export PATH="$HOME/mainline/bin:$PATH"  # persist in ~/.zshrc for later sessions
      ```
      Setup steps that need the user (Xcode, `sudo`, their Apple account): https://github.com/ztaylor/mainline/blob/main/docs/setup.md
 2. Run `mainline guide` and follow it. It has the steps in order, the rules (never edit the `.xcodeproj`, never read

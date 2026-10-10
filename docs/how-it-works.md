@@ -20,8 +20,7 @@ command, and comes down to three ideas.
 
 ## 1. The project is generated
 
-An Xcode project file is thousands of lines of machine-written text that nobody can review, and editing it by hand (or
-by agent) breaks it. mainline never stores one. Each app has a short `project.yml` and an `app.env`, and
+Xcode project files can produce large, difficult-to-review diffs, especially when several contributors edit them. mainline never stores one. Each app has a short `project.yml` and an `app.env`, and
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) generates the `.xcodeproj` from them before every command. Settings
 live in a file a person can read in a minute, diffs stay small, and a bad edit fails loudly instead of corrupting the project.
 
@@ -66,14 +65,14 @@ mainline works fine by hand, but every part of it is shaped so an AI agent can r
 - **Tests are the gate.** `ship` won't upload a build that fails its tests.
 - **A playbook that ships with the tool.** `mainline guide` prints the procedure, the rules, when to ask the human,
   and the pitfalls that cost us hours, matched to the installed version.
-- **Secrets stay out of reach.** Credentials live in `~/.mainline` with private permissions. Nothing in an app or a
-  log contains them, and the guide tells agents never to read them.
+- **Credentials stay outside the repo.** Credentials live in `~/.mainline` with private permissions. The guide tells agents never to read the private key. Project configuration is executable code, so only run trusted apps
+  ([security model](../SECURITY.md#trusted-project-files)).
 
 ## Why not fastlane?
 
 [fastlane](https://fastlane.tools) is excellent, covers far more (App Store metadata, screenshots, Android), and you
 should use it if you need that. mainline is deliberately smaller: Apple's own tools, two small Homebrew packages, and
-about 1,400 lines of bash and Swift that you (or your agent) can read in one sitting. No Ruby, no gems, no
+a small Bash orchestrator and dependency-free Swift helpers. No Ruby, no gems, no
 plugins, and no match repo, because cloud signing makes certificate syncing unnecessary.
 
 ## What it doesn't do (yet)

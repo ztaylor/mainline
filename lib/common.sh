@@ -12,7 +12,7 @@ step() { printf '%s==>%s %s%s%s\n' "$_C" "$_N" "$_B" "$*" "$_N" >&2; }
 info() { printf '    %s\n' "$*" >&2; }
 ok()   { printf '    %s✓%s %s\n' "$_G" "$_N" "$*" >&2; }
 warn() { printf '    %s!%s %s\n' "$_Y" "$_N" "$*" >&2; }
-die()  { printf '%serror:%s %s\n' "$_R" "$_N" "$*" >&2; exit "${2:-1}"; }
+die()  { printf '%serror:%s %s\n' "$_R" "$_N" "$1" >&2; exit "${2:-1}"; }
 
 # rel <path>: the path relative to the current directory when it's inside it, for shorter output.
 rel() {
@@ -151,8 +151,8 @@ simulator_udid() {
   json="$(xcrun simctl list devices available -j)"
   udid="$(echo "$json" | jq -r --arg name "${SIMULATOR_NAME:-}" '
       [.devices | to_entries[] | select(.key | test("iOS")) | .key as $rt | .value[] | . + {rt: $rt}] as $all
-      | (($all | map(select(.name == $name)) | sort_by(.rt) | reverse) +
-         ($all | map(select(.name | test("^iPhone"))) | sort_by(.rt) | reverse))
+      | (($all | map(select(.name == $name)) | sort_by(.rt | split("iOS-")[1] | split("-") | map(tonumber)) | reverse) +
+         ($all | map(select(.name | test("^iPhone"))) | sort_by(.rt | split("iOS-")[1] | split("-") | map(tonumber)) | reverse))
       | .[0].udid // empty')"
   [ -n "$udid" ] || die "no available iPhone simulator. Install an iOS runtime: xcodebuild -downloadPlatform iOS"
   echo "$udid"

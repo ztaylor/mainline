@@ -10,5 +10,6 @@ let package = Package(
     targets: [
         .executableTarget(name: "asc", path: "Sources/asc"),
         .executableTarget(name: "appicon", path: "Sources/appicon"),
+        .testTarget(name: "ASCTests", dependencies: ["asc"]),
     ]
 )

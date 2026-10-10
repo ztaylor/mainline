@@ -11,7 +11,7 @@ ships it, and you install it from TestFlight. This page is for you, the human. T
 | Install Xcode and run the one `sudo` step ([setup](setup.md)) | Install mainline and its dependencies, check with `doctor` |
 | Enroll in the Apple Developer Program | Create the API key in your browser, if it can drive one |
 | Approve 2FA prompts and Apple's agreements | Scaffold, write the Swift, test, screenshot, fix |
-| Decide names: the store name and bundle ID are permanent | Register, create the app record, ship, check status |
+| Decide names: confirm the store name and permanent bundle ID | Register, create the app record, ship, check status |
 | Install from TestFlight and try it | Read crash reports, reproduce, fix, ship again |
 
 ## Claude Code

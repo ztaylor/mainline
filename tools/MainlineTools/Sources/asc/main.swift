@@ -5,7 +5,7 @@ import Foundation
 // Output contract (so shell scripts can consume it):
 //   * the primary result (an ID, a number) is printed alone on stdout
 //   * progress and diagnostics go to stderr
-//   * exit codes: 0 ok · 1 error · 2 timeout · 3 not found · 64 usage
+//   * exit codes: 0 ok · 1 error · 2 timeout · 3 not found · 64 usage · 78 configuration
 
 let usage = """
 usage: asc <command> [args]
@@ -29,35 +29,6 @@ func log(_ message: String) {
     FileHandle.standardError.write(Data((message + "\n").utf8))
 }
 
-/// Minimal argument parser: positionals plus `--name value` / `--flag` options.
-struct Args {
-    var positional: [String] = []
-    var options: [String: String] = [:]
-
-    init(_ raw: [String]) {
-        var i = 0
-        while i < raw.count {
-            let arg = raw[i]
-            if arg.hasPrefix("--") {
-                let name = String(arg.dropFirst(2))
-                if i + 1 < raw.count, !raw[i + 1].hasPrefix("--") {
-                    options[name] = raw[i + 1]
-                    i += 1
-                } else {
-                    options[name] = "true"
-                }
-            } else {
-                positional.append(arg)
-            }
-            i += 1
-        }
-    }
-
-    func at(_ index: Int, _ name: String) throws -> String {
-        guard index < positional.count else { throw ASCError.usage("missing <\(name)>\n\n\(usage)") }
-        return positional[index]
-    }
-}
 
 struct NotFound: Error { let message: String }
 struct TimedOut: Error { let message: String }
@@ -161,19 +132,9 @@ func waitForBuild(_ api: ASCClient, appID: String, buildNumber: String, timeout:
             let state = "\(processing) / \(internalState)"
             if state != lastState { log("Build \(buildNumber): \(state)"); lastState = state }
 
-            switch processing {
-            case "VALID":
-                if internalState == "MISSING_EXPORT_COMPLIANCE" {
-                    log("warning: build needs an export-compliance answer. Set ITSAppUsesNonExemptEncryption in Info.plist (see docs/04-troubleshooting.md).")
-                }
-                // internalBuildState can lag processingState by a few seconds; keep polling until it settles.
-                if internalState == "PROCESSING" || internalState == "?" { break }
+            if try buildIsReady(processing: processing, internalState: internalState, buildNumber: buildNumber) {
                 print(build.id)
                 return
-            case "FAILED", "INVALID":
-                throw ASCError.http(status: 0, message: "Build \(buildNumber) processing ended in \(processing). Check email from App Store Connect for details.")
-            default:
-                break
             }
         } else if lastState != "not visible" {
             log("Build \(buildNumber): uploaded, not yet visible in App Store Connect…")
@@ -187,6 +148,12 @@ func waitForBuild(_ api: ASCClient, appID: String, buildNumber: String, timeout:
 func ensureGroup(_ api: ASCClient, appID: String, name: String, external: Bool) async throws {
     let groups = try await api.getAll("/v1/apps/\(appID)/betaGroups", query: ["limit": "200"])
     if let match = groups.first(where: { $0.attr("name") == name }) {
+        guard (match.attributes["isInternalGroup"] as? Bool) == !external else {
+            throw ASCError.config("TestFlight group \(name) has the wrong type. Choose a different TESTFLIGHT_GROUP.")
+        }
+        if !external, match.attributes["hasAccessToAllBuilds"] as? Bool != true {
+            throw ASCError.config("TestFlight group \(name) does not automatically receive builds. Enable automatic distribution in App Store Connect or choose a new TESTFLIGHT_GROUP.")
+        }
         log("TestFlight group \"\(name)\" exists.")
         print(match.id)
         return
@@ -239,7 +206,12 @@ func addTester(_ api: ASCClient, groupID: String, email: String, first: String?,
 }
 
 func rawAPI(_ api: ASCClient, method: String, path: String, body: String?) async throws {
-    let json = try body.map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSON ?? [:] }
+    let json = try body.map { text -> JSON in
+        guard let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? JSON else {
+            throw ASCError.usage("json-body must be a JSON object")
+        }
+        return object
+    }
     let response = try await api.request(method.uppercased(), path, body: json)
     let data = try JSONSerialization.data(withJSONObject: response, options: [.prettyPrinted, .sortedKeys])
     print(String(data: data, encoding: .utf8) ?? "")
@@ -256,6 +228,10 @@ do {
         print(usage)
         exit(0)
     }
+    try args.validate()
+    let timeout = try args.positiveInt("timeout", default: 1800)
+    let interval = try args.positiveInt("interval", default: 30)
+    let limit = try args.positiveInt("limit", default: 10)
     let api = try ASCClient(credentials: try Credentials.fromEnvironment())
 
     switch (command, sub) {
@@ -268,11 +244,11 @@ do {
     case ("build", "next-number"):
         try await nextBuildNumber(api, appID: try args.at(2, "app-id"))
     case ("build", "list"):
-        try await listBuilds(api, appID: try args.at(2, "app-id"), limit: args.options["limit"] ?? "10")
+        try await listBuilds(api, appID: try args.at(2, "app-id"), limit: String(limit))
     case ("build", "wait"):
         try await waitForBuild(
             api, appID: try args.at(2, "app-id"), buildNumber: try args.at(3, "build-number"),
-            timeout: Int(args.options["timeout"] ?? "") ?? 1800, interval: Int(args.options["interval"] ?? "") ?? 30)
+            timeout: timeout, interval: interval)
     case ("group", "ensure"):
         try await ensureGroup(api, appID: try args.at(2, "app-id"), name: try args.at(3, "name"),
                               external: args.options["external"] != nil)
@@ -294,6 +270,7 @@ do {
 } catch let e as ASCError {
     log(e.description)
     if case .usage = e { exit(64) }
+    if case .config = e { exit(78) }
     exit(1)
 } catch {
     log("error: \(error)")
