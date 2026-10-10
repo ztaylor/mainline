@@ -37,24 +37,23 @@ The bundle ID becomes `<your prefix>.<slug>`, like `com.yourname.tally`, and is 
 
 ## 1. Scaffold
 
-To keep several apps together in one repo, make a workspace first. It adds an `apps/` folder, a `.gitignore`, and an
-`AGENTS.md` that points agents at the guide:
+Each app is a self-contained folder that can live anywhere, usually as its own repo. Create it where you keep code:
 
 ```sh
-mainline init my-apps && cd my-apps
-```
-
-Then create the app:
-
-```sh
+cd ~/code
 mainline new tally --name "Tally" --symbol plus.forwardslash.minus --from "#FF8A3D" --to "#E5383B"
+cd tally && git init
 ```
 
-This copies the template into `apps/tally/` (or `./tally/` outside a workspace), renders the icon and generates the
-Xcode project. Edit `app.env` if the store name should differ from the display name.
+This copies the template into `./tally/`, renders the icon and generates the Xcode project. Inside the folder, commands
+need no app name: `mainline test`, `mainline ship`. Edit `app.env` if the store name should differ from the display name.
+
+To keep several apps in one repo instead, make a workspace first with `mainline init my-apps`. It adds an `apps/`
+folder, a `.gitignore` and an `AGENTS.md`, and `mainline new` then puts each app in `apps/`.
 
 ```
 tally/
+├── AGENTS.md        points agents at `mainline guide` (CLAUDE.md includes it)
 ├── app.env          names, bundle ID, version, store details, icon: the app's single source of truth
 ├── project.yml      the XcodeGen spec: targets, build settings, Info.plist keys
 ├── Sources/         TallyApp.swift, Models/, Views/

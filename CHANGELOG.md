@@ -12,7 +12,8 @@ The first release.
   - **Release:** `register`, and `ship`, which tests, archives unsigned, signs at export with Apple's cloud-managed
     certificate, uploads, sets up the TestFlight group and testers, and waits for processing. `status` shows builds,
     and `crashes` downloads TestFlight crash reports and prints the app's frames from each.
-  - Apps can live anywhere: a path, the current folder, `./apps/<name>`, or the bundled examples by name.
+  - Apps can live anywhere, each as its own repo: run commands from inside the app's folder, or name it by path,
+    by folder name (`./<name>` or `./apps/<name>` in a workspace), or by example name.
 - `asc`, a dependency-free App Store Connect API client in Swift, and `appicon`, an icon renderer.
 - An app template: SwiftUI, SwiftData, Swift Testing unit tests, XCTest UI tests, launch arguments for tests and
   screenshots, iOS 18 and later.

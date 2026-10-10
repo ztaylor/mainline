@@ -363,7 +363,8 @@ cmd_build() {
 }
 
 cmd_test() {
-  local app="${1:-}"; shift || true
+  local app=""
+  case "${1:-}" in -*|"") ;; *) app="$1"; shift ;; esac   # leading option → the app in this folder
   local unit_only=0 only_ids=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -394,7 +395,8 @@ cmd_test() {
 }
 
 cmd_run() {
-  local app="${1:-}"; shift || true
+  local app=""
+  case "${1:-}" in -*|"") ;; *) app="$1"; shift ;; esac   # leading option → the app in this folder
   local wait=3 dark=0 show=0 shot=1 launch_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -501,7 +503,8 @@ cmd_register() {
 }
 
 cmd_ship() {
-  local app="${1:-}"; shift || true
+  local app=""
+  case "${1:-}" in -*|"") ;; *) app="$1"; shift ;; esac   # leading option → the app in this folder
   local skip_tests=0 no_wait=0
   while [ $# -gt 0 ]; do
     case "$1" in

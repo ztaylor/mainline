@@ -90,13 +90,19 @@ mainline setup --team ABCDE12345 --prefix com.yourname --tester you@example.com
 mainline setup --key ~/Downloads/AuthKey_ABC123DEFG.p8 --issuer <issuer-id>
 ```
 
-Then make a home for your apps and your first app:
+Then create your first app. It's a self-contained folder that can live anywhere, as its own repo; mainline is just
+the tool you run on it:
 
 ```sh
-mainline init ~/my-apps && cd ~/my-apps
+cd ~/code
 mainline new habit-streaks --name "Habit Streaks" --symbol flame.fill --from "#FF9F1C" --to "#E71D36"
-mainline ship habit-streaks
+cd habit-streaks && git init
+mainline test
+mainline ship
 ```
+
+Rather keep several apps in one repo? `mainline init my-apps` makes a workspace with an `apps/` folder, and
+`mainline new` puts apps there.
 
 The [playbook](docs/playbook.md) walks through every step.
 

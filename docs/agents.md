@@ -33,8 +33,8 @@ Then ask for what you want, in plain words:
 
 > My tester says the app crashed when they tapped Share. Check the crash logs and fix it.
 
-The skill also runs on its own name, `/mainline:ship-ios-app`. Without the plugin, a workspace made with `mainline init`
-has a `CLAUDE.md` that points Claude at the guide, which works just as well.
+The skill also runs on its own name, `/mainline:ship-ios-app`. Without the plugin, every app made with `mainline new`
+(and every `mainline init` workspace) has a `CLAUDE.md` that points Claude at the guide, which works just as well.
 
 ### Permissions
 
@@ -65,14 +65,10 @@ asks you. Without a browser, Claude gives you the values to paste and waits.
 
 ## Other agents
 
-Codex, Cursor, Gemini CLI, Aider and others read `AGENTS.md`. Make a workspace and start the agent in it:
-
-```sh
-mainline init my-apps && cd my-apps
-```
-
-The workspace's `AGENTS.md` tells the agent to run `mainline guide` before it does anything. For an agent that doesn't
-read `AGENTS.md`, start with: "Run `mainline guide` and follow it."
+Codex, Cursor, Gemini CLI, Aider and others read `AGENTS.md`. Every app made with `mainline new` has one, and so does a
+workspace made with `mainline init`. It tells the agent to run `mainline guide` before it does anything, so starting
+the agent in the app's folder is enough. For a brand-new app, or an agent that doesn't read `AGENTS.md`, start with:
+"Run `mainline guide` and follow it."
 
 ## Working on the Mac from somewhere else
 

@@ -37,8 +37,9 @@ ask the human what it should be (it's usually their reverse domain, like `com.th
 - Choose a slug (`habit-streaks`), a display name, a store name (≤30 characters, unique across the whole App Store;
   have two fallbacks ready), an SF Symbol and two hex colors for the starter icon. Confirm names with the human if they
   haven't given them.
-- `mainline new <slug> --name "<Name>" --symbol <sf.symbol> --from "#RRGGBB" --to "#RRGGBB"`. It creates `apps/<slug>`
-  when there's an `apps/` folder, otherwise `./<slug>`.
+- `mainline new <slug> --name "<Name>" --symbol <sf.symbol> --from "#RRGGBB" --to "#RRGGBB"`. It creates `./<slug>`, a
+  self-contained folder that can be its own repo, or `apps/<slug>` inside a workspace. Inside the app's folder, commands
+  need no app name (`mainline test`, `mainline ship`).
 - Set `ASC_APP_NAME` in `app.env` if the store name differs from the display name.
 
 ### 2. Implement
