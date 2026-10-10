@@ -38,9 +38,18 @@ $ mainline ship tally
 
 ## Built with mainline
 
-| <img src="docs/media/creel.png" width="260" alt="Creel: a satellite map of Lake Tahoe with catch pins, and a bite forecast scoring 97, Excellent"> | <img src="docs/media/photoface.png" width="260" alt="Photoface: an ultramarine halftone home screen with smart stacks, and a photo card mid-swipe with a combo counter"> | <img src="docs/media/tally.png" width="260" alt="Tally: colorful counter cards for water, push-ups, pages read and coffees, in dark and light mode"> |
-|:-:|:-:|:-:|
-| **Creel**<br>A fishing log with satellite maps, a solunar bite forecast and a species guide | **Photoface**<br>Swipe through your camera roll, with on-device stacks of screenshots, bursts and blurry shots | **Tally**<br>Counters for anything. The [example app](examples/tally) in this repo |
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="docs/media/creel.png" width="260" alt="Creel: a satellite map of Lake Tahoe with catch pins, and a bite forecast scoring 97, Excellent"></td>
+    <td width="33%" align="center"><img src="docs/media/photoface.png" width="260" alt="Photoface: an ultramarine halftone home screen with smart stacks, and a photo card mid-swipe with a combo counter"></td>
+    <td width="33%" align="center"><img src="docs/media/tally.png" width="260" alt="Tally: colorful counter cards for water, push-ups, pages read and coffees, in dark and light mode"></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><b>Creel</b><br>A fishing log with satellite maps, a solunar bite forecast and a species guide</td>
+    <td align="center" valign="top"><b>Photoface</b><br>Swipe through your camera roll, with on-device stacks of screenshots, bursts and blurry shots</td>
+    <td align="center" valign="top"><b>Tally</b><br>Counters for anything, and the <a href="examples/tally">example app</a> in this repo</td>
+  </tr>
+</table>
 
 Each went from a one-paragraph prompt to TestFlight with Claude Code driving mainline: the code, the tests, the brand
 and icon, the screenshots it checked its work against, and the crash fixes after real use.
