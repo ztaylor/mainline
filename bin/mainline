@@ -268,8 +268,10 @@ cmd_new() {
     esac
   done
   [[ "$symbol" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid SF Symbol name" 64
-  [[ "$from" =~ ^#[A-Fa-f0-9]{6}$ ]] && [[ "$to" =~ ^#[A-Fa-f0-9]{6}$ ]] \
-    || die "icon colors must be #RRGGBB" 64
+  local color
+  for color in "$from" "$to"; do
+    [[ "$color" =~ ^#[A-Fa-f0-9]{6}$ ]] || die "icon colors must be #RRGGBB" 64
+  done
   case "$name" in *$'\n'*|*$'\r'*) die "the display name must be one line" 64 ;; esac
   load_config
   [ -n "${BUNDLE_PREFIX:-}" ] || die "set your bundle ID prefix first: mainline setup --prefix com.yourname" 78
