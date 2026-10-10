@@ -87,6 +87,11 @@ grep -F 'It'\''s My \"Quotes\" $HOME $(touch injected) `touch injected2` \\(lite
 grep -q "^DISPLAY_NAME='It'.*# name shown under the home-screen icon$" quoted/app.env
 [ ! -s "$fixture/stdout" ]
 expect_exit 64 new quoted
+# Accents fold into the Swift target name; a name with no Latin letters falls back to the slug.
+expect_exit 0 new creme --name 'Crème Brûlée Straße'
+grep -q '^APP_NAME=CremeBruleeStrasse ' creme/app.env
+expect_exit 0 new tokyo-trip --name '東京'
+grep -q '^APP_NAME=TokyoTrip ' tokyo-trip/app.env
 # Failure inside command substitution must stop before app lookup or build/upload.
 printf 'ASC_KEY_ID=TESTKEY\nASC_KEY_PATH=%q\nDEVELOPMENT_TEAM=ABCDE12345\n' "$fixture/key.p8" > "$MAINLINE_CREDENTIALS"
 touch "$fixture/key.p8"

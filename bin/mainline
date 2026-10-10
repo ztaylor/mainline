@@ -56,6 +56,13 @@ EOF
 # sh_quote <value>: the value in single quotes, so sourcing the file gives it back literally.
 sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
+# swift_identifier <name>: ASCII letters and digits only, accents folded, never starting with a digit.
+swift_identifier() {
+  printf '%s' "$1" | perl -CSD -MUnicode::Normalize -pe '
+    $_ = NFD($_); s/\x{DF}/ss/g; s/\x{E6}/ae/g; s/\x{C6}/Ae/g; s/\x{F8}/o/g; s/\x{D8}/O/g; s/\x{153}/oe/g; s/\x{152}/Oe/g;
+    s/\p{Mn}//g; s/[^A-Za-z0-9]//g; s/^(\d)/App$1/'
+}
+
 # set_kv <file> <KEY> <value>: replace KEY=… in an env file, or append it.
 set_kv() {
   local file="$1" quoted
@@ -270,8 +277,9 @@ cmd_new() {
     if [ -d "$PWD/apps" ] || [ "$PWD" = "$MAINLINE_ROOT" ]; then parent="$PWD/apps"; else parent="$PWD"; fi
   fi
   [ -n "$name" ] || name="$(echo "$slug" | perl -pe 's/(^|-)(\w)/ \U$2/g; s/^ //')"
-  local app_name; app_name="$(echo "$name" | perl -pe 's/[^A-Za-z0-9]//g; s/^(\d)/App$1/')"
-  [ -n "$app_name" ] || die "could not make a Swift identifier from the name '$name'" 64
+  # The Swift target: the name folded to ASCII letters and digits (Café Crème → CafeCreme), or the slug's if none are left.
+  local app_name; app_name="$(swift_identifier "$name")"
+  [ -n "$app_name" ] || app_name="$(swift_identifier "$(echo "$slug" | perl -pe 's/(^|-)(\w)/\U$2/g')")"
   mkdir -p "$parent"
   local dest; dest="$(cd "$parent" && pwd)/$slug"
   [ ! -e "$dest" ] || die "$(rel "$dest") already exists" 64
