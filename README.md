@@ -17,6 +17,8 @@ mainline creates, builds, tests, screenshots, signs and uploads SwiftUI apps fro
 coding agents: your agent writes the app, and mainline gives it a repeatable path to internal TestFlight testing,
 with quiet logs, actionable exit codes and a playbook that ships with the tool. You can also run every command yourself.
 
+https://github.com/user-attachments/assets/d710c3a4-94bc-4731-bc1b-ffaf7de71501
+
 **Early release.** Requires a Mac with Xcode 26 or later. Simulator development needs no Apple account; shipping
 requires a paid Apple Developer Program membership, an App Store Connect API key and a one-time web form per app.
 App Store submission and external beta review are outside the current workflow.
