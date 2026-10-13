@@ -145,6 +145,12 @@ run_logged() {
   return "$status"
 }
 
+# xcode_auth: sets XCODE_AUTH, the flags that let xcodebuild manage signing with the App Store Connect API key.
+xcode_auth() {
+  XCODE_AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID")
+  [ -z "${ASC_ISSUER_ID:-}" ] || XCODE_AUTH+=(-authenticationKeyIssuerID "$ASC_ISSUER_ID")
+}
+
 # Picks a simulator UDID: SIMULATOR_NAME on the newest iOS runtime, else any iPhone.
 simulator_udid() {
   local json udid
@@ -156,6 +162,52 @@ simulator_udid() {
       | .[0].udid // empty')"
   [ -n "$udid" ] || die "no available iPhone simulator. Install an iOS runtime: xcodebuild -downloadPlatform iOS"
   echo "$udid"
+}
+
+# device_pick [name-or-id] → "<CoreDevice id>\t<UDID>\t<name>" for a paired, reachable iPhone or iPad.
+# With no argument it takes the only one that's reachable. Exits 11 when no phone is ready, 64 when several are.
+device_pick() {
+  local want="${1:-}" json rows
+  json="$(xcrun devicectl list devices --json-output - -q 2>/dev/null)" \
+    || die "couldn't list devices. Try: xcrun devicectl list devices"
+  rows="$(echo "$json" | jq -r '.result.devices[]
+      | select(.hardwareProperties.reality == "physical" and .hardwareProperties.platform == "iOS")
+      | [.identifier, (.hardwareProperties.udid // "-"), (.deviceProperties.name // "-"),
+         (.connectionProperties.pairingState // "-"), (.connectionProperties.tunnelState // "-"),
+         (.deviceProperties.developerModeStatus // "-")] | @tsv')"
+  local id udid name pairing tunnel devmode state known="" ready="" picked="" count=0 mode="-"
+  while IFS=$'\t' read -r id udid name pairing tunnel devmode; do
+    [ -n "$id" ] || continue
+    state="paired"
+    [ "$pairing" = paired ] || state="not paired"
+    [ "$tunnel" != unavailable ] || state="$state, not reachable"
+    known="$known
+      $name ($state)"
+    if [ -n "$want" ] && [ "$want" != "$name" ] && [ "$want" != "$id" ] && [ "$want" != "$udid" ]; then continue; fi
+    if [ "$state" != paired ]; then continue; fi
+    count=$((count + 1))
+    ready="$ready
+      $name"
+    picked="$id	$udid	$name"
+    mode="$devmode"
+  done <<EOF
+$rows
+EOF
+  if [ "$count" = 0 ]; then
+    local msg="no phone is ready"
+    [ -z "$want" ] || msg="no phone named '$want' is ready"
+    [ -z "$known" ] || msg="$msg. Phones this Mac knows:$known
+   "
+    die "$msg
+    Once per phone:
+      1. Connect it to this Mac with a cable, unlock it, and tap Trust.
+      2. Turn on Developer Mode: Settings → Privacy & Security → Developer Mode (the phone restarts).
+    After that it also works over Wi-Fi on the same network." 11
+  fi
+  [ "$count" = 1 ] || die "several phones are ready. Pick one with --device=<name> or DEVICE_NAME:$ready" 64
+  [ "$mode" != disabled ] \
+    || die "Developer Mode is off on ${picked##*	}. Turn it on in Settings → Privacy & Security → Developer Mode (the phone restarts), then run again." 11
+  echo "$picked"
 }
 
 hex_component() { # hex_component "#RRGGBB" <0|1|2> → 0xRR

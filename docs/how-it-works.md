@@ -40,6 +40,10 @@ So there are no certificates to create, export or renew, no registered devices, 
 the same over SSH, in a CI runner, or from an agent's shell. (Signing at archive time would use a *development*
 identity, which needs a key in the login keychain and a registered device. That's the trap this avoids.)
 
+`run --device` is the one exception, because a build you install on your own phone *must* be development-signed.
+Xcode registers the phone and creates the development certificate with the same API key, so there's still nothing to
+do on the web, but its private key does live in the login keychain.
+
 ## 3. Apple's API for everything else, and one web step
 
 A dependency-free Swift client for the [App Store Connect API](https://developer.apple.com/documentation/appstoreconnectapi)

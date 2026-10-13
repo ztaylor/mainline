@@ -76,6 +76,8 @@ Because signing happens in Apple's cloud, nothing needs the Mac's keychain or it
 SSH from another computer, from a phone, or in a cloud session, and `ship` works the same. Two things to know:
 
 - `sudo` steps need a real terminal. Run them yourself (`ssh -t mac 'sudo xcodebuild -runFirstLaunch'`).
+- `run --device` is the exception to the keychain rule: it signs for development, so run it once at the Mac, or unlock
+  the keychain in the SSH session first (see [on a phone](troubleshooting.md#on-a-phone)).
 - A browser the agent drives may run on a different computer than the Mac, so a downloaded API key lands there.
   Copy it across before `mainline setup --key` ([web steps](web-steps.md#rules-for-an-agent-driving-the-browser)).
 

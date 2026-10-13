@@ -37,6 +37,7 @@ if [ "${1:-}" = simctl ]; then
   cat <<'JSON'
 {"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-9":[{"name":"iPhone Test","udid":"older"}],"com.apple.CoreSimulator.SimRuntime.iOS-26-10":[{"name":"iPhone Test","udid":"newer"}]}}
 JSON
+elif [ "${1:-} ${2:-} ${3:-}" = "devicectl list devices" ]; then cat "$MAINLINE_HOME/devices.json"
 else exit 1; fi
 STUB
 printf '#!/bin/bash\nexit 1\n' > "$fixture/bin/xcodebuild"
@@ -97,10 +98,35 @@ printf 'ASC_KEY_ID=TESTKEY\nASC_KEY_PATH=%q\nDEVELOPMENT_TEAM=ABCDE12345\n' "$fi
 touch "$fixture/key.p8"
 expect_exit 1 ship quoted
 [ ! -e "$MAINLINE_HOME/lookup" ]
+# run --device: which phone, and when the human has to step in (exit 11).
+phone() { # phone <name> <pairing> <tunnel> <developer mode>
+  printf '{"identifier":"id-%s","hardwareProperties":{"reality":"physical","platform":"iOS","udid":"udid-%s"},"deviceProperties":{"name":"%s","developerModeStatus":"%s"},"connectionProperties":{"pairingState":"%s","tunnelState":"%s"}}' \
+    "$1" "$1" "$1" "$4" "$2" "$3"
+}
+devices() { local IFS=,; printf '{"result":{"devices":[%s]}}' "$*" > "$MAINLINE_HOME/devices.json"; }
+simulated='{"identifier":"sim","hardwareProperties":{"reality":"simulated","platform":"iOS","udid":"sim"},"deviceProperties":{"name":"iPhone 17 Pro"},"connectionProperties":{"pairingState":"paired","tunnelState":"connected"}}'
+devices "$simulated"
+expect_exit 11 run quoted --device
+devices "$simulated" "$(phone Away paired unavailable enabled)" "$(phone New unpaired disconnected enabled)"
+expect_exit 11 run quoted --device
+grep -q 'Away (paired, not reachable)' "$fixture/stderr" && grep -q 'New (not paired)' "$fixture/stderr"
+devices "$(phone Mine paired disconnected disabled)"
+expect_exit 11 run quoted --device
+grep -q 'Developer Mode is off on Mine' "$fixture/stderr"
+devices "$(phone One paired connected enabled)" "$(phone Two paired disconnected enabled)"
+expect_exit 64 run quoted --device
+expect_exit 11 run quoted --device=Three
+expect_exit 1 run quoted --device=Two     # picked; the stub xcodebuild then fails the build
+grep -q 'Building .* for Two' "$fixture/stderr"
+echo "DEVICE_NAME=udid-One" >> "$MAINLINE_CONFIG"
+expect_exit 1 run quoted --device
+grep -q 'Building .* for One' "$fixture/stderr"
+expect_exit 64 run quoted --device --show
+expect_exit 64 run quoted --device=
 # shellcheck disable=SC1091
 . "$root/lib/common.sh"
 SIMULATOR_NAME='iPhone Test'
 [ "$(simulator_udid)" = newer ]
 # Private settings stay private even under a permissive caller umask.
 [ "$(find "$MAINLINE_HOME" -name '*.env' -perm -004 | wc -l | tr -d ' ')" = 0 ]
-printf 'Passed %s CLI checks, plus quoting, registration failure, permissions and simulator selection.\n' "$checks"
+printf 'Passed %s CLI checks, plus quoting, registration failure, permissions, and simulator and phone selection.\n' "$checks"

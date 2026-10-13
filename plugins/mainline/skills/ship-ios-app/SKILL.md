@@ -1,6 +1,6 @@
 ---
 name: ship-ios-app
-description: Build an iOS app from an idea, change one, or ship it to TestFlight with the mainline CLI, without opening Xcode. Use when the user wants a new iPhone app, wants to test, screenshot or ship an existing mainline app (a folder with app.env), or asks about TestFlight builds or crash reports.
+description: Build an iOS app from an idea, change one, or ship it to TestFlight with the mainline CLI, without opening Xcode. Use when the user wants a new iPhone app, wants to test, screenshot, run on their iPhone or ship an existing mainline app (a folder with app.env), or asks about TestFlight builds or crash reports.
 ---
 
 # Ship an iOS app with mainline

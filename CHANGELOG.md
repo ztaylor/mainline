@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `run --device` runs the app on a real iPhone, connected by cable or on the same Wi-Fi: a Debug build with
+  development signing (Xcode registers the phone and makes the certificate with your API key), installed and
+  launched with `devicectl`, with a screenshot like the simulator's. `--device=<name or ID>` or `DEVICE_NAME` picks a
+  phone when several are connected; `--dark` switches the phone to dark mode just for the screenshot.
+- `run --console` stays attached and prints the app's output, in the simulator or on a phone.
+- Exit code 11: the phone needs a person (connect it and tap Trust, turn on Developer Mode, or unlock it).
+
 ## 0.1.0 (2026-10-10)
 
 The first release.

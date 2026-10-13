@@ -112,6 +112,9 @@ mainline test
 mainline ship
 ```
 
+To try a change on your own iPhone without waiting for TestFlight, `mainline run --device` builds, installs and
+launches it in about 30 seconds ([playbook](docs/playbook.md#4-look-at-it)).
+
 Rather keep several apps in one repo? `mainline init my-apps` makes a workspace with an `apps/` folder, and
 `mainline new` puts apps there.
 
@@ -140,7 +143,7 @@ job. [Agents](docs/agents.md) covers permissions, the browser step, and working 
 | | |
 | --- | --- |
 | `setup` · `doctor` · `init` · `new` · `list` · `guide` | Set up, check, and create apps |
-| `build` · `test` · `run` · `screenshots` · `icon` · `gen` | Develop in the simulator |
+| `build` · `test` · `run` · `screenshots` · `icon` · `gen` | Develop in the simulator, or on your phone with `run --device` |
 | `register` · `ship` · `status` · `crashes` · `asc` | Release to TestFlight |
 
 `mainline help` lists every option, and the [command reference](docs/commands.md) has the details, exit codes and settings.

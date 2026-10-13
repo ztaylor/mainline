@@ -36,8 +36,10 @@ Develop (simulator; no Apple account needed)
   build <app>                   Build for the simulator
   test <app> [--unit-only] [--only <Target/Class[/method]>]
                                 Run unit and UI tests on the simulator
-  run <app> [--wait N] [--dark] [--show] [--no-screenshot] [-- <launch args>]
+  run <app> [--wait N] [--dark] [--show] [--no-screenshot] [--console] [-- <launch args>]
                                 Install, launch and screenshot in the simulator
+  run <app> --device[=NAME] [the options above, except --show]
+                                The same on your iPhone (needs `mainline setup` and a paired phone)
   screenshots <app>             Export the screenshots that UI tests attached in the last test run
 
 Release (needs `mainline setup`)
@@ -48,7 +50,8 @@ Release (needs `mainline setup`)
   crashes <app> [N]             Download the last N (default 10) TestFlight crash reports and summarize each
   asc <args>                    Call the App Store Connect helper directly (`mainline asc help`)
 
-Exit codes: 0 ok · 1 failure · 2 timed out · 3 not found · 10 app record missing (one web step) · 64 usage · 78 not set up
+Exit codes: 0 ok · 1 failure · 2 timed out · 3 not found · 10 app record missing (one web step)
+            11 phone not ready (connect, trust, Developer Mode, unlock) · 64 usage · 78 not set up
 EOF
 }
 
@@ -432,7 +435,7 @@ cmd_test() {
 cmd_run() {
   local app=""
   case "${1:-}" in -*|"") ;; *) app="$1"; shift ;; esac   # leading option → the app in this folder
-  local wait=3 dark=0 show=0 shot=1 launch_args=()
+  local wait=3 dark=0 show=0 shot=1 on_device=0 device="" console=0 launch_args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --wait) [ $# -ge 2 ] || die "$1 needs a value" 64 ;;
@@ -442,11 +445,20 @@ cmd_run() {
       --dark) dark=1; shift ;;
       --show) show=1; shift ;;
       --no-screenshot) shot=0; shift ;;
+      --device) on_device=1; shift ;;
+      --device=*) on_device=1; device="${1#--device=}"; shift
+        [ -n "$device" ] || die "--device= needs a phone's name or ID" 64 ;;
+      --console) console=1; shift ;;
       --) shift; launch_args=("$@"); break ;;
       *) die "unknown option $1" 64 ;;
     esac
   done
   [[ "$wait" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "--wait must be a nonnegative number" 64
+  if [ "$on_device" = 1 ]; then
+    [ "$show" = 0 ] || die "--show opens Simulator.app; it doesn't apply to --device" 64
+    run_on_device "$app" "$device" "$wait" "$dark" "$shot" "$console" ${launch_args[@]+"${launch_args[@]}"}
+    return
+  fi
   cmd_build "$app"
   local udid; udid="$(simulator_udid)"
   local app_path="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/$APP_NAME.app"
@@ -459,6 +471,10 @@ cmd_run() {
   xcrun simctl ui "$udid" appearance "$([ "$dark" = 1 ] && echo dark || echo light)" 2>/dev/null || true
   xcrun simctl install "$udid" "$app_path"
   xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
+  if [ "$console" = 1 ]; then
+    info "the app's output follows. Ctrl-C to stop."
+    exec xcrun simctl launch --console-pty "$udid" "$BUNDLE_ID" ${launch_args[@]+"${launch_args[@]}"}
+  fi
   xcrun simctl launch "$udid" "$BUNDLE_ID" ${launch_args[@]+"${launch_args[@]}"} >/dev/null
   ok "launched $BUNDLE_ID"
   if [ "$shot" = 1 ]; then
@@ -469,6 +485,73 @@ cmd_run() {
     ok "screenshot: $(rel "$out")"
     echo "$out"
   fi
+}
+
+# run_on_device <app> <device> <wait> <dark> <shot> <console> [launch args...]
+# A development-signed Debug build, installed and launched on a paired phone with devicectl. Xcode's automatic
+# signing uses the API key to register the phone and make the development certificate and profile.
+run_on_device() {
+  local app="$1" device="$2" wait="$3" dark="$4" shot="$5" console="$6"; shift 6
+  cmd_gen "$app"
+  require_credentials
+  local picked id udid name
+  picked="$(device_pick "${device:-${DEVICE_NAME:-}}")" || exit $?
+  IFS=$'\t' read -r id udid name <<EOF
+$picked
+EOF
+  xcode_auth
+  step "Building $APP_NAME for $name (Debug, development signing)"
+  run_logged build-device xcodebuild build -project "$XCODEPROJ" -scheme "$APP_NAME" -configuration Debug \
+    -destination "platform=iOS,id=$udid" -derivedDataPath "$DERIVED_DATA" \
+    -allowProvisioningDeviceRegistration "${XCODE_AUTH[@]}" \
+    || die "build failed. For signing errors, see docs/troubleshooting.md#on-a-phone"
+  ok "build succeeded"
+  local app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/$APP_NAME.app"
+  step "Installing on $name"
+  run_logged install xcrun devicectl device install app --device "$id" "$app_path" || device_failed install
+  step "Launching on $name"
+  if [ "$console" = 1 ]; then
+    info "the app's output follows. Ctrl-C to stop."
+    exec xcrun devicectl device process launch --console --terminate-existing --device "$id" "$BUNDLE_ID" -- "$@"
+  fi
+  run_logged launch xcrun devicectl device process launch --terminate-existing --device "$id" "$BUNDLE_ID" -- "$@" \
+    || device_failed launch
+  ok "launched $BUNDLE_ID"
+  [ "$shot" = 1 ] || return 0
+  # Switch the phone's appearance only for the screenshot, then put back the owner's setting.
+  local want before
+  want="$([ "$dark" = 1 ] && echo dark || echo light)"
+  before="$(xcrun devicectl device info appearance --device "$id" --json-output - -q 2>/dev/null \
+    | jq -r '.result.userInterfaceStyle // empty' 2>/dev/null || true)"
+  # Unknown means it couldn't be restored, so leave it alone.
+  if [ -n "$before" ] && [ "$before" != "$want" ]; then
+    xcrun devicectl device settings appearance --device "$id" --mode "$want" -q >/dev/null 2>&1 || true
+  fi
+  sleep "$wait"
+  local out; out="$BUILD_DIR/screenshots/$(date +%Y%m%d-%H%M%S)-device.png"
+  mkdir -p "$(dirname "$out")"
+  local shot_status=0
+  xcrun devicectl device capture screenshot --device "$id" --destination "$out" -q >"$LOG_DIR/screenshot.log" 2>&1 \
+    || shot_status=$?
+  if [ -n "$before" ] && [ "$before" != "$want" ]; then
+    xcrun devicectl device settings appearance --device "$id" --mode "$before" -q >/dev/null 2>&1 || true
+  fi
+  if [ "$shot_status" != 0 ]; then
+    warn "the app is running, but the screenshot failed: $(grep -m1 -i error "$LOG_DIR/screenshot.log" || tail -1 "$LOG_DIR/screenshot.log")"
+    return 0
+  fi
+  ok "screenshot: $(rel "$out")"
+  echo "$out"
+}
+
+# device_failed <step>: a phone that's locked or doesn't trust this Mac is the human's to fix (exit 11).
+device_failed() {
+  local log="$LOG_DIR/$1.log"
+  if grep -qiE "locked|passcode" "$log"; then die "unlock the phone, then run again" 11; fi
+  if grep -qiE "not paired|pairing" "$log"; then
+    die "the phone doesn't trust this Mac. Connect it with a cable, unlock it, tap Trust, then run again" 11
+  fi
+  die "$1 failed (log: $(rel "$log"))"
 }
 
 # Exports the named XCTAttachment screenshots from the last `test` run to <app>/build/screenshots/tests/.
@@ -574,8 +657,7 @@ cmd_ship() {
   build_number=$(( api_next > local_last + 1 ? api_next : local_last + 1 ))
   ok "version $MARKETING_VERSION build $build_number"
 
-  local auth=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID")
-  [ -z "${ASC_ISSUER_ID:-}" ] || auth+=(-authenticationKeyIssuerID "$ASC_ISSUER_ID")
+  xcode_auth
 
   # 4. Archive UNSIGNED. Signing happens at export with Apple's cloud-managed distribution
   #    certificate, so no private key, keychain access or registered device is ever needed.
@@ -608,7 +690,7 @@ EOF
   step "Exporting a signed .ipa"
   rm -rf "$export_dir"
   run_logged export xcodebuild -exportArchive -archivePath "$archive" -exportPath "$export_dir" \
-    -exportOptionsPlist "$plist" "${auth[@]}" \
+    -exportOptionsPlist "$plist" "${XCODE_AUTH[@]}" \
     || die "export failed. See docs/troubleshooting.md#signing"
   local ipa; ipa="$(find "$export_dir" -name '*.ipa' | head -1)"
   [ -n "$ipa" ] || die "export produced no .ipa"

@@ -68,6 +68,13 @@ ask the human what it should be (it's usually their reverse domain, like `com.th
 - For scrolled or multi-step screens, write a "screenshot tour" UI test that attaches named screenshots
   (`XCTAttachment(screenshot:)` with `lifetime = .keepAlways`), run `mainline test <app>`, then
   `mainline screenshots <app>` and read the PNGs it lists.
+- `--console` (simulator or phone) stays attached and prints the app's `print` output, for debugging. It blocks until
+  the app exits, so run it in the background or stop it yourself.
+- **On the human's phone:** `mainline run <app> --device -- -seed-sample-data` installs, launches and screenshots on a
+  connected iPhone. Use it for what the simulator fakes (camera, location, haptics, the real photo library,
+  performance), and when the human asks to try it on their phone. **Exit 11** means the phone needs the human:
+  relay the printed step (connect and tap Trust, turn on Developer Mode, unlock it) and run again. The screenshot is
+  of their real phone, so it can show their notifications and status bar; don't share it beyond the human.
 
 ### 5. Register
 
@@ -101,6 +108,7 @@ ask the human what it should be (it's usually their reverse domain, like `com.th
 | 2 | Apple's processing timed out | Run `mainline status <app>` later. **Don't upload again.** |
 | 3 | not found (`status`) | `mainline register <app>` |
 | 10 | app record missing | The web step in step 5. |
+| 11 | phone not ready (`run --device`) | Relay the printed step to the human, then run again. |
 | 64 | usage error | Fix the arguments (`mainline help`). |
 | 78 | not set up | `mainline doctor`, then [setup](setup.md). |
 

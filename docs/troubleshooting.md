@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Start with `mainline doctor`. When a step fails, the CLI prints the relevant error lines and the path of the full log:
-`<app>/build/logs/{gen,build,test,archive,export,upload,tester}.log`.
+`<app>/build/logs/{gen,build,test,archive,export,upload,tester}.log` (`build-device`, `install`, `launch` for `run --device`).
 
 - [Machine & simulator](#machine--simulator)
 - [Project generation](#project-generation)
@@ -11,6 +11,7 @@ Start with `mainline doctor`. When a step fails, the CLI prints the relevant err
 - [Upload](#upload)
 - [Processing & TestFlight](#processing--testflight)
 - [App record](#app-record)
+- [On a phone](#on-a-phone)
 - [Crashes on device](#crashes-on-device)
 
 ---
@@ -181,6 +182,27 @@ Store names are unique across the App Store. Pick a fallback (`Tally Counter`, `
 ### Bundle ID missing from the New App dropdown
 
 Run `mainline register <app>` (it registers the bundle ID), then reload the New App form.
+
+## On a phone
+
+`run --device` exits 11 when the phone needs a person, and prints the step. Once per phone: connect it to the Mac with
+a cable, unlock it, tap **Trust**, then turn on **Settings → Privacy & Security → Developer Mode** (the phone
+restarts). After that it also works over Wi-Fi on the same network, while the phone is unlocked.
+
+Unlike `ship`, a phone build uses **development signing**: on first use, Xcode registers the phone with your team (it
+counts toward the 100 iPhones a year a membership allows) and creates an Apple Development certificate, whose private
+key goes in the login keychain. The build log is `<app>/build/logs/build-device.log`.
+
+| Error text (roughly) | Cause → fix |
+| --- | --- |
+| `no phone is ready` / `… not reachable` | Connect the phone with a cable, or put it on the Mac's Wi-Fi network and unlock it. `xcrun devicectl list devices` shows what the Mac sees. 🧑 |
+| `several phones are ready` | Pick one: `--device="Duke's iPhone"`, or set `DEVICE_NAME` in `~/.mainline/config.env`. |
+| `Developer Mode is off` | Settings → Privacy & Security → Developer Mode, then restart the phone. 🧑 |
+| `unlock the phone` | The phone is locked. Unlock it and run again. 🧑 |
+| `User interaction is not allowed` / `errSecInteractionNotAllowed` (build-device) | The login keychain is locked, which is normal over SSH. Run once at the Mac, or `security unlock-keychain ~/Library/Keychains/login.keychain-db` in that session. 🧑 |
+| `Your team has reached the maximum number of certificates` | Too many Apple Development certs. Revoke stale ones at developer.apple.com → Certificates, IDs & Profiles. 🧑 |
+| `Cloud signing permission error` / `You don't have permission to create…` | The API key needs the **Admin** role to create certificates and register devices. |
+| The app opens and closes at once | The launch arguments may be wrong, or it crashed. Run again with `--console` to see its output. |
 
 ## Crashes on device
 

@@ -110,7 +110,20 @@ mainline run tally --dark -- -seed-sample-data   # dark mode
 ```
 
 The last line is the screenshot's path. **Open it** and check layout, truncation, contrast, empty states and dark mode.
-Options: `--wait N` (seconds before the screenshot, default 3), `--show` (open Simulator.app), `--no-screenshot`.
+Options: `--wait N` (seconds before the screenshot, default 3), `--show` (open Simulator.app), `--no-screenshot`,
+`--console` (stay attached and print the app's output instead of taking a screenshot).
+
+**On your phone.** For what the simulator can't do well (the camera, real GPS, haptics, your own photo library,
+real performance), run the same build on your iPhone, about 30 seconds after the build instead of a TestFlight round trip:
+
+```sh
+mainline run tally --device -- -seed-sample-data
+```
+
+Once per phone: connect it with a cable, unlock it and tap Trust, then turn on Developer Mode (Settings → Privacy &
+Security → Developer Mode). After that it works over Wi-Fi too. It needs `mainline setup`: on first use, Xcode
+registers the phone with your team and makes a development certificate, whose private key goes in your login keychain.
+Run it at the Mac the first time, or see [on a phone](troubleshooting.md#on-a-phone) for SSH.
 
 **Screens behind taps.** Give the app hooks such as `-tab <name>` to open a tab and `-open <screen>` to present a
 sheet, and pass them after `--`. For scrolled or multi-step screens, write a "screenshot tour" UI test that attaches
